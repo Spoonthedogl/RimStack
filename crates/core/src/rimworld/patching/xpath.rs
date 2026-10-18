@@ -303,9 +303,9 @@ mod tests {
             assert_eq!(target, Target::of_xpath("Defs/ThingDef[defName=\"A\"]"));
         }
         let wide = Target::of_xpath("*/ThingDef/comps");
-        assert_eq!((wide.kind.as_deref(), wide.names), (Some("ThingDef"), None));
-        assert_eq!(Target::of_xpath("*/*/ThingDef").kind, None);
-        assert_eq!(Target::of_xpath("//*/ThingDef").kind, None);
+        assert_eq!((wide.kind(), wide.names()), (Some("ThingDef"), None));
+        assert_eq!(Target::of_xpath("*/*/ThingDef").kind(), None);
+        assert_eq!(Target::of_xpath("//*/ThingDef").kind(), None);
     }
 
     #[test]

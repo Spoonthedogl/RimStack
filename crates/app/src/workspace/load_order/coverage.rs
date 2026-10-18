@@ -274,12 +274,12 @@ fn patch_coverage_of_the_workshop() {
     let mut wide_groups: BTreeMap<String, Group> = BTreeMap::new();
     for x in &seen.xpaths {
         let example = format!("{} {}", at(x.mod_at), shorten(&x.xpath));
-        match (&x.target.kind, &x.target.names) {
-            (_, Some(_)) => {
+        match (x.target.has_kind(), x.target.has_names()) {
+            (_, true) => {
                 exact += 1;
                 exact_mods.insert(x.mod_at);
             }
-            (Some(_), None) => {
+            (true, false) => {
                 kind_only += 1;
                 kind_mods.insert(x.mod_at);
                 kind_groups
@@ -287,7 +287,7 @@ fn patch_coverage_of_the_workshop() {
                     .or_default()
                     .add(x.mod_at, example, 3);
             }
-            (None, None) => {
+            (false, false) => {
                 widened += 1;
                 wide_mods.insert(x.mod_at);
                 wide_groups

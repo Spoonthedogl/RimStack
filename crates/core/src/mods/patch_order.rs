@@ -2,7 +2,7 @@ use crate::base::sentence::Sentence;
 use crate::mods::infer::Inferred;
 use crate::mods::rules::{Kind, Rule};
 use crate::mods::sort::{Sorted, reach};
-use crate::rimworld::patching::{DefKey, Failure, Loaded, Run, Target};
+use crate::rimworld::patching::{DefKey, Failure, Loaded, Run};
 use crate::{say, say_n};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -199,7 +199,7 @@ fn fixing_swap(
     pairs.sort_by_key(|&(x, y)| y - x);
     let traced = !defs.iter().any(|def| run.is_unknown(def))
         && match failure {
-            Failure::Failed { target, .. } => !run.unknown.iter().any(|u| overlap(u, target)),
+            Failure::Failed { target, .. } => !run.is_unknown_target(target),
             _ => true,
         };
     let failing = match failure {
@@ -246,15 +246,6 @@ fn defs_of(failure: &Failure, run: &Run) -> BTreeSet<DefKey> {
     }
 }
 
-fn overlap(one: &Target, other: &Target) -> bool {
-    let kinds = one.kind.is_none() || other.kind.is_none() || one.kind == other.kind;
-    let names = match (&one.names, &other.names) {
-        (Some(a), Some(b)) => !a.is_disjoint(b),
-        _ => true,
-    };
-    kinds && names
-}
-
 /// None for an error an unknown operation could be behind, and for a repeat no patch took part in.
 fn culprit(failure: &Failure, run: &Run) -> Option<(usize, PathBuf)> {
     match failure {
@@ -263,7 +254,7 @@ fn culprit(failure: &Failure, run: &Run) -> Option<(usize, PathBuf)> {
             file,
             target,
             ..
-        } => (!run.unknown.iter().any(|u| overlap(u, target))).then(|| (*mod_at, file.clone())),
+        } => (!run.is_unknown_target(target)).then(|| (*mod_at, file.clone())),
         Failure::Duplicate { def, .. } | Failure::Twice { def, .. } => {
             if run.is_unknown(def) {
                 return None;

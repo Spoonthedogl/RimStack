@@ -384,10 +384,7 @@ fn sequence_stops_at_the_first_failure_and_fails() {
     );
     assert_eq!(xpath, "Defs/ThingDef[defName=\"zzz\"]");
     assert_eq!(
-        target
-            .names
-            .as_ref()
-            .map(|n| n.iter().next().map(String::as_str)),
+        target.names().map(|n| n.iter().next().map(String::as_str)),
         Some(Some("zzz"))
     );
 }
@@ -507,11 +504,10 @@ fn an_unknown_class_marks_its_target() {
     let out = run(&[unknown]);
     assert!(out.failures.is_empty());
     assert_eq!(out.unknown.len(), 1);
-    assert_eq!(out.unknown[0].kind.as_deref(), Some("ThingDef"));
+    assert_eq!(out.unknown[0].kind(), Some("ThingDef"));
     assert_eq!(
         out.unknown[0]
-            .names
-            .as_ref()
+            .names()
             .map(|n| n.iter().next().map(String::as_str)),
         Some(Some("A"))
     );
@@ -537,8 +533,7 @@ fn an_unknown_wrapper_marks_only_what_its_inner_xpaths_aim_at() {
     assert_eq!(out.unknown.len(), 1);
     assert_eq!(
         out.unknown[0]
-            .names
-            .as_ref()
+            .names()
             .map(|n| n.iter().next().map(String::as_str)),
         Some(Some("A"))
     );
@@ -563,11 +558,7 @@ fn an_unknown_operation_reaches_every_element_named_like_an_xpath_at_any_depth()
     let names: Vec<_> = out
         .unknown
         .iter()
-        .map(|t| {
-            t.names
-                .as_ref()
-                .and_then(|n| n.iter().next().map(String::as_str))
-        })
+        .map(|t| t.names().and_then(|n| n.iter().next().map(String::as_str)))
         .collect();
     assert_eq!(names, [Some("B"), Some("A")]);
 }

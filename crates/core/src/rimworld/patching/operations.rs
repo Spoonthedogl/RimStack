@@ -104,18 +104,11 @@ pub(super) fn apply(
                         file: file.path.clone(),
                         operation: operation.describe(blame.text.as_deref()),
                         xpath: xpath.unwrap_or_default().to_string(),
-                        target: xpath.map_or_else(any_def, Target::of_xpath),
+                        target: xpath.map_or_else(Target::any, Target::of_xpath),
                     });
                 }
             }
         }
-    }
-}
-
-fn any_def() -> Target {
-    Target {
-        kind: None,
-        names: None,
     }
 }
 
@@ -421,7 +414,7 @@ impl Run<'_> {
 
     fn mark_unknown(&mut self, xpath: Option<&str>) {
         self.unknown
-            .push(xpath.map_or_else(any_def, Target::of_xpath));
+            .push(xpath.map_or_else(Target::any, Target::of_xpath));
     }
 
     /// `node`'s own content or attributes change.

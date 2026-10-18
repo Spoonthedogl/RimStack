@@ -100,15 +100,15 @@ fn patch_simulation_timing_on_this_install() {
             Failure::Twice { .. } => twice += 1,
         }
     }
-    let wide = first.unknown.iter().filter(|t| t.kind.is_none()).count();
+    let wide = first.unknown.iter().filter(|t| !t.has_kind()).count();
     eprintln!("unknown targets: {}, widened: {wide}", first.unknown.len());
     let mut shapes = std::collections::BTreeMap::new();
     for t in &first.unknown {
         *shapes
-            .entry((t.kind.clone(), t.names.is_some()))
+            .entry((t.has_kind(), t.has_names()))
             .or_insert(0usize) += 1;
     }
-    eprintln!("unknown target shapes (kind, named): {shapes:?}");
+    eprintln!("unknown target shapes (every side has a kind, names): {shapes:?}");
     for f in &first.failures {
         if let Failure::Failed {
             file,

@@ -8,72 +8,17 @@ mod checks;
 mod document;
 mod inheritance;
 mod operations;
+mod target;
 pub mod types;
 mod xpath;
 
 pub use operations::{Active, Audit, Failure, Patches, Trace, XpathSeen, audit};
+pub use target::Target;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DefKey {
     pub kind: String,
     pub name: String,
-}
-
-/// What an XPath is known to reach among the top-level defs; `None` is any.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Target {
-    pub kind: Option<String>,
-    pub names: Option<BTreeSet<String>>,
-}
-
-impl Target {
-    pub fn of_xpath(xpath: &str) -> Target {
-        let any = Target {
-            kind: None,
-            names: None,
-        };
-        let path = xpath.trim();
-        if path.contains('|') || path.starts_with("//") || leaves_the_def(path) {
-            return any;
-        }
-        let Some(below) = xpath::below_defs(path.trim_start_matches('/')) else {
-            return any;
-        };
-        let end = below.find(['[', '/']).unwrap_or(below.len());
-        let kind = below[..end].trim_end();
-        if kind.is_empty()
-            || kind.contains(['*', '(', '@', ':'])
-            || kind.contains(char::is_whitespace)
-        {
-            return any;
-        }
-        Target {
-            kind: Some(kind.to_string()),
-            names: name_predicate(below[end..].trim_start()),
-        }
-    }
-
-    pub fn covers(&self, def: &DefKey) -> bool {
-        self.kind.as_ref().is_none_or(|kind| *kind == def.kind)
-            && self
-                .names
-                .as_ref()
-                .is_none_or(|names| names.contains(&def.name))
-    }
-}
-
-fn leaves_the_def(path: &str) -> bool {
-    const AXES: [&str; 5] = ["parent::", "ancestor", "following", "preceding", ".."];
-    AXES.iter().any(|axis| path.contains(axis))
-}
-
-/// A `@Name` test widens to every name: a def with a `defName` is keyed by that, which its `Name` does not tell.
-fn name_predicate(rest: &str) -> Option<BTreeSet<String>> {
-    let tests = xpath::name_tests(rest)?.tests;
-    if tests.iter().any(|(by_attribute, _)| *by_attribute) {
-        return None;
-    }
-    Some(tests.into_iter().map(|(_, name)| name).collect())
 }
 
 /// The mods' defs and patches as read, ready to be played in any order.
@@ -97,6 +42,10 @@ pub struct Run {
 impl Run {
     pub fn is_unknown(&self, def: &DefKey) -> bool {
         self.unknown.iter().any(|target| target.covers(def))
+    }
+
+    pub fn is_unknown_target(&self, target: &Target) -> bool {
+        self.unknown.iter().any(|unknown| unknown.overlaps(target))
     }
 }
 
@@ -238,169 +187,6 @@ mod tests {
     fn files_of(root: &Path, active: &[&str]) -> ModFiles {
         let folders = loadfolders::folders(root, "1.7", &|id| active.contains(&id));
         ModFiles { folders }
-    }
-
-    #[test]
-    fn target_reads_a_def_name() {
-        let named = Target::of_xpath("Defs/XenotypeDef[defName=\"VU_ReturnedSkeletal\"]/genes");
-        assert_eq!(named.kind.as_deref(), Some("XenotypeDef"));
-        assert_eq!(names(&named), Some(vec!["VU_ReturnedSkeletal"]));
-
-        let spaced = Target::of_xpath("Defs/ThingDef\n\t[defName=\"A\"]");
-        assert_eq!(spaced, Target::of_xpath("Defs/ThingDef[defName=\"A\"]"));
-        let kind = Target::of_xpath("/Defs/ThingDef/comps");
-        assert_eq!(
-            (kind.kind.as_deref(), names(&kind)),
-            (Some("ThingDef"), None)
-        );
-
-        for wide in ["//li", "Defs/*", "Defs/ThingDef | Defs/PawnKindDef", "li"] {
-            let target = Target::of_xpath(wide);
-            assert_eq!((target.kind.as_ref(), target.names.as_ref()), (None, None));
-            assert!(target.covers(&key("ThingDef", "A")), "{wide}");
-        }
-        assert!(named.covers(&key("XenotypeDef", "VU_ReturnedSkeletal")));
-        assert!(!named.covers(&key("XenotypeDef", "Other")));
-        assert!(!kind.covers(&key("GeneDef", "A")));
-    }
-
-    fn names(target: &Target) -> Option<Vec<&str>> {
-        target
-            .names
-            .as_ref()
-            .map(|set| set.iter().map(String::as_str).collect())
-    }
-
-    #[test]
-    fn target_reads_names_joined_by_or() {
-        let target = Target::of_xpath("Defs/ThingDef[defName=\"A\" or defName='B']/comps");
-        assert_eq!(target.kind.as_deref(), Some("ThingDef"));
-        assert_eq!(names(&target), Some(vec!["A", "B"]));
-        assert!(target.covers(&key("ThingDef", "A")));
-        assert!(target.covers(&key("ThingDef", "B")));
-        assert!(!target.covers(&key("ThingDef", "C")));
-        assert!(!target.covers(&key("GeneDef", "A")));
-    }
-
-    #[test]
-    fn names_split_on_or_without_spaces() {
-        let target = Target::of_xpath("Defs/ThingDef[defName=\"A\"or defName=\"B\"]/comps");
-        assert_eq!(names(&target), Some(vec!["A", "B"]));
-        let target = Target::of_xpath("Defs/ThingDef[defName='A' or\ndefName='B'or defName=\"C\"]");
-        assert_eq!(names(&target), Some(vec!["A", "B", "C"]));
-        let inside = Target::of_xpath("Defs/ThingDef[defName=\"Door or Floor\"]");
-        assert_eq!(names(&inside), Some(vec!["Door or Floor"]));
-        let word = Target::of_xpath("Defs/ThingDef[defName=\"A\" or Floor]");
-        assert_eq!(word.names, None);
-    }
-
-    #[test]
-    fn a_name_test_may_have_spaces_around_the_equals() {
-        let target = Target::of_xpath("Defs/ThingDef[defName = \"Temperature\"]/x");
-        assert_eq!(names(&target), Some(vec!["Temperature"]));
-        let both = Target::of_xpath("Defs/ThingDef[defName =\"A\" or defName= 'B']");
-        assert_eq!(names(&both), Some(vec!["A", "B"]));
-    }
-
-    #[test]
-    fn a_name_attribute_test_covers_a_def_that_also_has_a_defname() {
-        let target = Target::of_xpath("Defs/ThingDef[@Name='BaseX']/comps");
-        assert!(target.covers(&key("ThingDef", "KeyedByItsDefName")));
-        assert!(!target.covers(&key("RecipeDef", "KeyedByItsDefName")));
-    }
-
-    #[test]
-    fn an_attribute_name_among_the_names_widens_them() {
-        for mixed in [
-            "Defs/ThingDef[defName=\"A\" or @Name=\"B\"]",
-            "Defs/ThingDef[@Name=\"B\" or defName=\"A\"]/comps",
-            "Defs/ThingDef[@Name=\"A\" or @Name=\"B\"]",
-        ] {
-            let target = Target::of_xpath(mixed);
-            assert_eq!(target.kind.as_deref(), Some("ThingDef"), "{mixed}");
-            assert_eq!(target.names, None, "{mixed}");
-            assert!(target.covers(&key("ThingDef", "C")), "{mixed}");
-        }
-        let other = Target::of_xpath("Defs/ThingDef[defName=\"A\" or li]");
-        assert_eq!(other.names, None);
-    }
-
-    #[test]
-    fn names_joined_by_and_to_another_condition() {
-        for (xpath, want) in [
-            (
-                "Defs/ThingDef[defName=\"A\" and soundWorking=\"Y\"]",
-                vec!["A"],
-            ),
-            (
-                "Defs/ThingDef[soundWorking=\"Y\" and defName=\"A\"]/x",
-                vec!["A"],
-            ),
-            (
-                "Defs/ThingDef[(defName=\"A\" or defName=\"B\") and soundWorking=\"Y\"]",
-                vec!["A", "B"],
-            ),
-            (
-                "Defs/ThingDef[(defName=\"A\" or defName=\"B\")]",
-                vec!["A", "B"],
-            ),
-            (
-                "Defs/ThingDef[(defName=\"A\" or defName=\"B\") and (defName=\"B\" or defName=\"C\")]",
-                vec!["B"],
-            ),
-            ("Defs/ThingDef[defName=\"A\" and defName=\"A\"]", vec!["A"]),
-            (
-                "Defs/ThingDef[defName=\"A\" and soundWorking[.=\" or \"]]",
-                vec!["A"],
-            ),
-            (
-                "Defs/ThingDef[defName=\"A\" and x or defName=\"B\"]",
-                vec!["A", "B"],
-            ),
-        ] {
-            let target = Target::of_xpath(xpath);
-            assert_eq!(names(&target), Some(want), "{xpath}");
-        }
-        let none = Target::of_xpath("Defs/ThingDef[defName=\"A\" and defName=\"B\"]");
-        assert_eq!(names(&none), Some(vec![]));
-        let mixed = Target::of_xpath("Defs/ThingDef[@Name=\"A\" and defName=\"B\"]");
-        assert_eq!(mixed.names, None);
-    }
-
-    #[test]
-    fn an_or_with_another_condition_stays_wide() {
-        for wide in [
-            "Defs/ThingDef[defName=\"A\" or soundWorking=\"Y\"]",
-            "Defs/ThingDef[defName=\"A\" and x or soundWorking=\"Y\"]",
-            "Defs/ThingDef[(defName=\"A\" or x) and y]",
-            "Defs/ThingDef[soundWorking=\"Y\" and x]",
-            "Defs/ThingDef[not(defName=\"A\")]",
-        ] {
-            let target = Target::of_xpath(wide);
-            assert_eq!(target.kind.as_deref(), Some("ThingDef"), "{wide}");
-            assert_eq!(target.names, None, "{wide}");
-        }
-    }
-
-    #[test]
-    fn a_step_out_of_the_def_widens_the_target() {
-        for out in [
-            "Defs/ThingDef[defName=\"X\"]/../ThingDef[defName=\"Y\"]/comps",
-            "Defs/ThingDef[defName=\"X\"]/parent::Defs/ThingDef",
-            "Defs/ThingDef[defName=\"X\"]/ancestor::Defs",
-            "Defs/ThingDef[defName=\"X\"]/ancestor-or-self::Defs",
-            "Defs/ThingDef[defName=\"X\"]/following::ThingDef",
-            "Defs/ThingDef[defName=\"X\"]/following-sibling::ThingDef",
-            "Defs/ThingDef[defName=\"X\"]/preceding::ThingDef",
-            "Defs/ThingDef[defName=\"X\"]/preceding-sibling::ThingDef",
-        ] {
-            let target = Target::of_xpath(out);
-            assert_eq!(
-                (target.kind.as_ref(), target.names.as_ref()),
-                (None, None),
-                "{out}"
-            );
-        }
     }
 
     #[test]
