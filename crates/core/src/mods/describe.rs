@@ -4,6 +4,7 @@ use crate::mods::checks::{self, Problem};
 use crate::mods::details;
 use crate::mods::library::Library;
 use crate::mods::list::Mod;
+use crate::mods::patch_order;
 use crate::mods::rules::{Kind, Rule};
 use crate::rimworld::code::{Aim, Facts};
 use crate::rimworld::game::When;
@@ -11,6 +12,8 @@ use crate::rimworld::workshopdb::Names;
 use crate::say;
 use crate::say_n;
 use std::collections::{HashMap, HashSet};
+
+mod patches;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trouble {
@@ -192,6 +195,7 @@ pub fn troubles(
     mods: &[Mod],
     versions: Versions,
     workshop: &Names,
+    unfixed: &[patch_order::Unfixed],
 ) -> Vec<Vec<Trouble>> {
     let abouts = library.abouts(mods);
     let mut found = checks::check(&abouts, &library.game_version, |key| library.name_of(key));
@@ -271,6 +275,7 @@ pub fn troubles(
             });
         }
     }
+    patches::add(&mut all, library, mods, unfixed);
     all
 }
 
@@ -489,6 +494,7 @@ mod tests {
             &library.active,
             Versions::CheckedBut(&HashSet::new()),
             &Names::new(),
+            &[],
         );
         let said: Vec<(String, String)> = found[0]
             .iter()
@@ -529,6 +535,7 @@ mod tests {
             &library.active,
             Versions::CheckedBut(&HashSet::new()),
             &Names::new(),
+            &[],
         );
         assert_eq!(found[0][0].key, "needs:gone.lib");
         assert_eq!(found[2][0].key, "missing");
@@ -579,6 +586,7 @@ mod tests {
             &library.active,
             Versions::CheckedBut(&nobody),
             &Names::new(),
+            &[],
         );
         assert!(found[0].is_empty());
         assert_eq!(found[1].len(), 1);
@@ -637,10 +645,11 @@ mod tests {
             &library.active,
             Versions::CheckedBut(&trusted),
             &none,
+            &[],
         );
         assert_eq!(found[0].len(), 1);
         assert!(found[0][0].error && found[0][0].short.to_string() == "Missing gone.lib");
-        let found = troubles(&library, &library.active, Versions::Ignored, &none);
+        let found = troubles(&library, &library.active, Versions::Ignored, &none, &[]);
         assert_eq!(found[0].len(), 1);
         let ignored = version_ignored(&library, &library.active, Versions::Ignored);
         assert_eq!(ignored[..2], [true, false]);
@@ -652,7 +661,7 @@ mod tests {
             name: "Gone Library".into(),
         };
         let known: Names = [("gone.lib".to_string(), item)].into();
-        let found = troubles(&library, &library.active, Versions::Ignored, &known);
+        let found = troubles(&library, &library.active, Versions::Ignored, &known, &[]);
         assert_eq!(
             found[0][0].words.to_string(),
             "Needs Gone Library, which is not installed."

@@ -5,7 +5,7 @@
 <h1 align="center">RimStack</h1>
 
 <p align="center">
-  <b>The RimWorld mod manager that is up in 0.2 seconds<br>and sorts by reading what is inside your mods.</b><br>
+  <b>The RimWorld mod manager that is up in 0.2 seconds,<br>sorts by reading what is inside your mods,<br>and plays their XML patches before the game does.</b><br>
   Free, open source, native.
 </p>
 
@@ -32,6 +32,20 @@ About 35 times faster to your mod list. RimSort's numbers are the average of thr
 
 RimStack is a native app, and it never re-runs a check it already did, so filtering, scrolling, sorting and saving stay instant with thousands of mods. Run both on your own install and see.
 
+## Plays your patches before the game does
+
+Load order matters most where two mods patch the same thing. Take two mods that both give a xenotype the same gene, one of them only if the gene isn't there yet. Load them one way and the gene is there once. Load them the other way and it's there twice. The game says nothing, and you find out in play.
+
+RimStack finds it before you launch. In the background, it builds what the game would load: every active mod's defs in one document, every XML patch applied in load order with the game's own rules, then inheritance. Then it looks for three things that go wrong:
+
+- **A patch operation that fails**, as the game would log it.
+- **An element doubled in a def**, which the game logs as a duplicate node.
+- **A def named twice in a list**, such as a gene listed twice in a xenotype. The game never reports this one.
+
+When moving two mods removes an error without bringing a new one, Sort makes that move and names the def and the patch behind it. An error that no order avoids is shown as a warning on the mod, naming the patch file and how many of its operations fail. Patch classes from other frameworks are followed only as far as their XML says, and an error on a def they might change is never reported, so a warning is never a guess.
+
+It takes about a second on a hundred mods, and the result is kept until a mod's files, the list or your rules change. If you press Sort while it's still running, Sort waits for it.
+
 ## Live, always
 
 You never press Refresh. While the window is open, RimStack looks at your mods, saves and the game every two seconds and updates by itself:
@@ -47,6 +61,8 @@ You never press Refresh. While the window is open, RimStack looks at your mods, 
 Most managers sort with the rules mod authors wrote down. Plenty of mods never wrote any, so you end up sorting by hand and guessing.
 
 RimStack opens the mods' compiled DLLs and reads them. It never runs anything. It sees which game methods each mod patches with Harmony (prefix, postfix, transpiler, finalizer) and uses that to find load order rules nobody declared. It reads XML patches the same way. Every move Sort makes is shown with the reason first, and nothing is applied until you say so.
+
+What it learns from playing the XML patches is [described above](#plays-your-patches-before-the-game-does).
 
 It also sorts your mods into categories on its own (loaders, game and DLC, libraries, content, patches, textures, interface, performance), again from what is in the mod and never from its name. You can override any of them.
 

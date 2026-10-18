@@ -82,6 +82,12 @@ pub struct App {
     conflicts: RwLock<Option<Conflicts>>,
     /// Changes only while `conflicts` is held for writing.
     conflicts_generation: AtomicU64,
+    /// Written only by `keep_patched`; kept against the members it was made for.
+    patched: RwLock<Option<load_order::Patched>>,
+    /// Simulations started and not yet ended.
+    simulations: Arc<std::sync::atomic::AtomicUsize>,
+    /// The members of the newest simulation started, until the library or the files change.
+    simulated_for: Mutex<Option<Vec<library::ModId>>>,
     behind: RwLock<Option<HashSet<String>>>,
     list_on_disk: Mutex<(u64, bool)>,
     /// Read once: git installed later is not seen.
@@ -134,6 +140,9 @@ impl App {
             steamcmd: Reread::new(),
             conflicts: RwLock::new(None),
             conflicts_generation: AtomicU64::new(0),
+            patched: RwLock::new(None),
+            simulations: Arc::default(),
+            simulated_for: Mutex::new(None),
             behind: RwLock::new(None),
             list_on_disk: Mutex::new((0, false)),
             git: OnceLock::new(),
@@ -260,6 +269,18 @@ impl App {
         &self.conflicts
     }
 
+    fn simulations(&self) -> &Arc<std::sync::atomic::AtomicUsize> {
+        &self.simulations
+    }
+
+    fn simulated_for(&self) -> &Mutex<Option<Vec<library::ModId>>> {
+        &self.simulated_for
+    }
+
+    pub fn patched(&self) -> &RwLock<Option<load_order::Patched>> {
+        &self.patched
+    }
+
     /// Taken before the library is read, so a scan of an earlier library is told apart.
     pub fn conflicts_generation(&self) -> u64 {
         self.conflicts_generation.load(Ordering::Relaxed)
@@ -296,6 +317,8 @@ impl App {
         let mut slot = self.conflicts.writing();
         self.conflicts_generation.fetch_add(1, Ordering::Relaxed);
         *slot = None;
+        *self.patched.writing() = None;
+        *self.simulated_for.held() = None;
         drop(slot);
         self.install().forget_texture_counts();
         self.publish(crate::changes::Changes::TEXTURES);

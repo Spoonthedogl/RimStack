@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RimStack</title>
-<meta name="description" content="A fast, free RimWorld mod manager that sorts your mods by reading what is inside them.">
+<meta name="description" content="A fast, free RimWorld mod manager that sorts your mods by reading what is inside them and plays their XML patches before the game does.">
 <meta property="og:title" content="RimStack">
 <meta property="og:description" content="A fast, free mod manager for RimWorld.">
 <meta property="og:image" content="https://theforgotten69.github.io/RimStack/img/social.png">
@@ -143,6 +143,7 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
   <a class="side-download" href="https://github.com/TheForgotten69/RimStack/releases">Download</a>
   <nav aria-label="Page">
     <ul class="top-links">
+      <li><a href="#patches">Patch simulation</a></li>
       <li><a href="#features">Features</a></li>
       <li><a href="#live">Live, always</a></li>
     </ul>
@@ -228,6 +229,7 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
     <button class="menu-btn" type="button" aria-controls="side" aria-expanded="false"><span aria-hidden="true">☰</span> Menu</button>
     <a class="brand" href="#top"><img src="icon.svg" alt="">RimStack</a>
     <nav>
+      <a href="#patches">Patches</a>
       <a href="#features">Features</a>
       <a class="nav-guide" href="#guide">Guide</a>
       <a href="#install">Install</a>
@@ -237,7 +239,7 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
 
   <section class="hero">
     <h1>Up in 0.2 seconds.<br>Sorts by what is inside your mods.</h1>
-    <p>A free, native RimWorld mod manager that stays live: what changes on disk shows up by itself, with nothing to refresh. It reads the mods' compiled code instead of trusting whatever rules their authors wrote down.</p>
+    <p>A free, native RimWorld mod manager that stays live: what changes on disk shows up by itself, with nothing to refresh. It reads the mods' compiled code instead of trusting whatever rules their authors wrote down, and plays their XML patches before the game does, to find the load order where nothing breaks.</p>
     <a class="btn primary" href="https://github.com/TheForgotten69/RimStack/releases">Download</a>
     <a class="btn plain" href="#guide">Read the guide</a>
     <a class="btn plain" href="https://github.com/TheForgotten69/RimStack">View on GitHub</a>
@@ -257,6 +259,20 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
     <span class="go">Open the guide →</span>
   </a>
 
+  <section id="patches">
+    <h2>Plays your patches before the game does</h2>
+    <p class="note">Load order matters most where two mods patch the same thing. Take two mods that both give a xenotype the same gene, one of them only if the gene isn't there yet. Load them one way and the gene is there once. Load them the other way and it's there twice. The game says nothing, and you find out in play. RimStack finds it before you launch.</p>
+    <div class="grid">
+      <div class="card"><h3>Plays them like the game</h3><p>Every active mod's defs in one document, every XML patch applied in load order with the game's own rules, then inheritance. In the background, in about a second on a hundred mods.</p></div>
+      <div class="card"><h3>Finds what goes wrong</h3><p>A patch operation that fails, an element doubled in a def, or a def named twice in a list, such as a gene listed twice in a xenotype, which the game never reports.</p></div>
+      <div class="card"><h3>Fixes it with the order</h3><p>When moving two mods removes an error without bringing a new one, Sort makes that move and names the def and the patch behind it.</p></div>
+      <div class="card"><h3>Warns when no order can</h3><p>An error no load order avoids is shown on the mod, with the patch file and how many of its operations fail.</p></div>
+      <div class="card"><h3>Never a guess</h3><p>Patch classes from other frameworks are followed only as far as their XML says. An error on a def they might change is never reported.</p></div>
+      <div class="card"><h3>Remembered</h3><p>The result is kept until a mod's files, the list or your rules change. Press Sort while it is still running and Sort waits for it.</p></div>
+    </div>
+    <p class="note" style="margin-top:14px"><a href="#mods-sort">How it works with Sort →</a></p>
+  </section>
+
   <section id="live">
     <h2>Live, always</h2>
     <p class="note">You never press Refresh. While the window is open, RimStack looks at your mods, saves and the game every two seconds and updates what it shows by itself, without moving the list you are working on.</p>
@@ -275,6 +291,7 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
     <p class="note">Most managers sort with the rules mod authors wrote down. Plenty of mods never wrote any, so you sort by hand and guess. RimStack opens the compiled DLLs and reads them. It never runs anything. It sees which game methods each mod patches with Harmony (prefix, postfix, transpiler, finalizer) and uses that to find load order rules nobody declared. Every move Sort makes comes with its reason, and nothing is applied until you say so.</p>
     <div class="grid">
       <div class="card"><h3>Reads the code</h3><p>Harmony patches and XML patches become load order rules, shown as "Detected from files".</p></div>
+      <a class="card" href="#patches"><h3>Plays the patches</h3><p>Your XML patches are played before the game does, to find the order where nothing breaks.</p></a>
       <div class="card"><h3>Automatic categories</h3><p>Loaders, game and DLC, libraries, content, patches, textures, interface, performance. From what is in the mod, never its name. Override any of them.</p></div>
       <div class="card"><h3>Only changes your mod order</h3><p>The one file it writes is your mod list, and the old one is kept beside it. It does not touch the game.</p></div>
     </div>
@@ -398,6 +415,13 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
   <li><b>Hints read from the files:</b> a mod whose patches or defs point at another mod's defs, and the game code each mod patches with Harmony. RimStack reads the compiled DLLs and runs nothing. A hint gives way to every other rule.</li>
 </ol>
 <p>Among the orders that keep every rule, Sort picks the one closest to your current list, so nothing moves without a reason. When rules contradict each other, the weakest one is dropped and named.</p>
+<p><b>The patch simulation.</b> Once the mods' files are read, RimStack plays their XML patches in the background, as the game does: every active mod's defs in one document, every patch in load order, then inheritance. It looks for three things:</p>
+<ul class="points">
+  <li>a patch operation that fails</li>
+  <li>an element doubled in a def</li>
+  <li>a def named twice in a list, such as a gene listed twice in a xenotype, which the game never reports</li>
+</ul>
+<p>When moving two mods removes such an error without bringing a new one, that move becomes a hint for Sort, with the def and the patch as its reason. These hints beat the hints read from the files but give way to code hints and every other rule. An error no order avoids is listed under <a href="#mods-problems">Problems</a> instead. Patch classes from other frameworks are followed only as far as their XML shows, and an error on a def they might change is never reported, so a warning is never a guess. The simulation takes about a second on a hundred mods, and its result is kept until a mod's files, the list or your rules change. If you press Sort while it is still running, Sort waits for it.</p>
 
 <h3 id="mods-problems">Problems</h3>
 <div class="split">
@@ -411,6 +435,7 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
       <li>a mod installed twice</li>
       <li>a broken rule, or a mod above the game or a DLC it needs</li>
       <li>textures provided twice</li>
+      <li>a patch file that fails in every load order, with the file and how many of its operations fail</li>
     </ul>
     <p>Any warning can be ignored from the mod's menu or its details. "Made for another game version" can be ignored for every mod at once, until the game updates.</p>
   </div>
@@ -600,7 +625,7 @@ footer { margin: 72px 0 40px; padding-top: 22px; border-top: 1px solid var(--lin
 <h3 id="settings-sorting">Sorting</h3>
 <figure><img src="img/settings-sort.webp" alt="Settings, Sorting: community rules, patch and def hints, community databases and game version mismatch" loading="lazy" width="1200" height="717"></figure>
 <ul class="points">
-  <li><b>Community rules</b> on or off, and whether <b>patch and def hints</b> are used by Sort or only shown.</li>
+  <li><b>Community rules</b> on or off, and whether <b>patch and def hints</b> are used by Sort or only shown. This includes the moves found by playing the patches.</li>
   <li><b>Community databases,</b> fetched from GitHub when you ask: the Community Rules Database, No Version Warning (mods that work on this game version without saying so), Use This Instead (maintained replacements for abandoned mods) and the Steam Workshop Database (names of mods that are not installed). Each can be switched off.</li>
   <li><b>Game version mismatch:</b> warn, ignore for this game version, or ignore.</li>
 </ul>

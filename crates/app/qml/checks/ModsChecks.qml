@@ -26,7 +26,7 @@ Item {
         }
     }
 
-        Timer {
+    Timer {
         interval: 300
         repeat: true
         running: Mods.checkMode !== ""
@@ -38,7 +38,7 @@ Item {
                 checks.closeWhileBusy()
                 return
             }
-            if (!Hub.mods.filesRead)
+            if (!Hub.mods.filesRead || Hub.mods.patching)
                 return
             stop()
             if (Mods.checkMode === "screens") {
@@ -193,7 +193,7 @@ Item {
         // after a mod comes or goes.
         Mods.previewSort()
         const moving = Hub.mods.previewing
-        check("sort gives a preview or says there is nothing to do", Hub.mods.sortNote !== "")
+        check("sort gives a preview, waits for the patches or says there is nothing to do", Hub.mods.sortNote !== "" || Hub.mods.sortWaiting)
         if (moving) {
             Mods.endSort(false)
             check("discard restores the order", order() === start && !Hub.mods.previewing && !Hub.mods.dirty)

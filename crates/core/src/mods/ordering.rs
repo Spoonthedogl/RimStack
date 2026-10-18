@@ -12,6 +12,8 @@ pub struct Sources<'a> {
     /// Empty unless the community rules are downloaded and switched on.
     pub community: Option<&'a Community>,
     pub from_files: &'a [Inferred],
+    /// What the patch simulation found; counted when `hints` is on, like `from_files`.
+    pub patches: &'a [Inferred],
     /// Compiled code's order always counts: the game needs that order.
     pub hints: bool,
 }
@@ -27,8 +29,18 @@ pub fn all_rules(library: &Library, mods: &[Mod], sources: Sources) -> Vec<Rule>
     found.extend(from_files.map(|d| Rule {
         first: d.first,
         then: d.then,
-        kind: Kind::Inferred,
+        kind: match d.code {
+            true => Kind::Code,
+            false => Kind::Inferred,
+        },
     }));
+    if sources.hints {
+        found.extend(sources.patches.iter().map(|d| Rule {
+            first: d.first,
+            then: d.then,
+            kind: Kind::Patches,
+        }));
+    }
     if let Some(community) = sources.community {
         found.extend(community.rules(&abouts));
     }
@@ -158,6 +170,7 @@ mod tests {
             yours: &own,
             community: None,
             from_files: &from_files,
+            patches: &[],
             hints: false,
         };
         let pairs = |sources| -> Vec<(usize, usize, Kind)> {
@@ -167,12 +180,31 @@ mod tests {
                 .map(|r| (r.first, r.then, r.kind))
                 .collect()
         };
-        assert_eq!(
-            pairs(sources),
-            [(1, 0, Kind::Yours), (2, 3, Kind::Inferred)]
-        );
+        assert_eq!(pairs(sources), [(1, 0, Kind::Yours), (2, 3, Kind::Code)]);
         sources.hints = true;
         assert_eq!(pairs(sources).len(), 3);
+        assert_eq!(pairs(sources)[2].2, Kind::Inferred);
+    }
+
+    #[test]
+    fn the_simulations_hints_are_their_own_kind_and_follow_the_switch() {
+        let (_tmp, library) = four_mods();
+        let own = yours(&[]);
+        let found = [inferred(1, 0, false)];
+        let mut sources = Sources {
+            yours: &own,
+            community: None,
+            from_files: &[],
+            patches: &found,
+            hints: false,
+        };
+        let kinds = |sources| -> Vec<Kind> {
+            let found = all_rules(&library, &library.active, sources);
+            found.into_iter().map(|r| r.kind).collect()
+        };
+        assert_eq!(kinds(sources), []);
+        sources.hints = true;
+        assert_eq!(kinds(sources), [Kind::Patches]);
     }
 
     #[test]
@@ -194,6 +226,7 @@ mod tests {
             yours: &own,
             community: None,
             from_files: &[],
+            patches: &[],
             hints: false,
         };
         let (mods, sorted) = sorted_by_category(&library, library.active.clone(), sources);
@@ -214,6 +247,7 @@ mod tests {
             yours: &none,
             community: None,
             from_files: &[],
+            patches: &[],
             hints: false,
         };
         let mut mods = library.active.clone();

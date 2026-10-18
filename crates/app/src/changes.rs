@@ -29,6 +29,7 @@ impl Changes {
     pub const LAUNCHES: Self = Self(1 << 16);
     pub const FOLDERS: Self = Self(1 << 17);
     pub const MOD_FILES: Self = Self(1 << 18);
+    pub const PATCHES: Self = Self(1 << 19);
 
     pub fn contains(self, any_of: Self) -> bool {
         self.0 & any_of.0 != 0

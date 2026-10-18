@@ -12,11 +12,14 @@ use std::collections::{HashMap, HashSet};
 
 mod details;
 mod edits;
+mod patches;
+mod patches_key;
 mod rows;
 mod rules;
 mod sorting;
 
 pub use details::{Details, Files, Overview};
+pub use patches::Patched;
 pub use rows::RowView;
 
 pub struct Preview {
@@ -38,6 +41,8 @@ pub struct LoadOrder {
     twins: [Vec<bool>; 2],
     slowest: Option<u32>,
     preview: Option<Preview>,
+    /// The active list's ids when Sort was pressed.
+    sort_waiting: Option<Vec<String>>,
     batching: bool,
     headings: bool,
     by_name: bool,
@@ -92,6 +97,7 @@ impl LoadOrder {
             twins: [Vec::new(), Vec::new()],
             slowest: None,
             preview: None,
+            sort_waiting: None,
             batching: false,
             headings: true,
             by_name: false,
@@ -503,4 +509,8 @@ impl LoadOrder {
 }
 
 #[cfg(test)]
+mod coverage;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod timing;

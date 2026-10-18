@@ -12,7 +12,7 @@ runs:
           libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
           libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
           libwayland-client0 libwayland-cursor0 libwayland-egl1 \
-          file lld
+          libxml2-dev libclang-dev pkg-config file lld
     - uses: jurplel/install-qt-action@v4
       with:
         version: ${{ env.QT_VERSION }}

@@ -14,6 +14,7 @@ pub mod infer;
 pub mod library;
 pub mod list;
 pub mod ordering;
+pub mod patch_order;
 pub mod rules;
 pub mod session;
 pub mod share;

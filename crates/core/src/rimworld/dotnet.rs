@@ -15,6 +15,23 @@ pub struct Type {
     pub name: String,
     pub extends: Option<String>,
     pub methods: Vec<Method>,
+    /// Instance fields only.
+    pub fields: Vec<Field>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Field {
+    pub name: String,
+    pub of: FieldType,
+}
+
+/// Names are full, `Namespace.Outer+Inner`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FieldType {
+    Named(String),
+    /// `System.Collections.Generic.List`1` of one class.
+    ListOf(String),
+    Other,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -156,13 +173,15 @@ impl<'a> Assembly<'a> {
         dll.get(..at)?;
         // A type's methods run up to the next type's first, so the firsts must never
         // go back: a file where they do would make each reading quadratic.
-        let mut last = 0;
-        for row in 1..=rows[TYPE_DEF] {
-            let first = assembly.cell(TYPE_DEF, row, 5)?;
-            if first < last {
-                return None;
+        for column in [4, 5] {
+            let mut last = 0;
+            for row in 1..=rows[TYPE_DEF] {
+                let first = assembly.cell(TYPE_DEF, row, column)?;
+                if first < last {
+                    return None;
+                }
+                last = first;
             }
-            last = first;
         }
         Some(assembly)
     }
@@ -289,6 +308,51 @@ impl<'a> Assembly<'a> {
         first..end.max(first).min(self.rows[METHOD_DEF] + 1)
     }
 
+    fn fields_of(&self, type_row: usize) -> std::ops::Range<usize> {
+        let first = self.cell(TYPE_DEF, type_row, 4).unwrap_or(1).max(1);
+        let end = match type_row < self.rows[TYPE_DEF] {
+            true => self.cell(TYPE_DEF, type_row + 1, 4).unwrap_or(first),
+            false => self.rows[FIELD] + 1,
+        };
+        first..end.max(first).min(self.rows[FIELD] + 1)
+    }
+
+    /// A `CLASS` or `VALUETYPE` element: the type's name and the bytes used.
+    fn class_in(&self, bytes: &[u8]) -> Option<(String, usize)> {
+        let (&(0x11 | 0x12), rest) = bytes.split_first()? else {
+            return None;
+        };
+        let (coded, used) = compressed(rest)?;
+        let table = *[TYPE_DEF, TYPE_REF, TYPE_SPEC].get(coded & 3)?;
+        Some((self.type_name((table, coded >> 2))?, 1 + used))
+    }
+
+    /// ECMA-335 II.23.2.4: `FIELD`, then the type.
+    fn field_type(&self, signature: &[u8]) -> FieldType {
+        let Some((&0x06, element)) = signature.split_first() else {
+            return FieldType::Other;
+        };
+        if let Some((name, _)) = self.class_in(element) {
+            return FieldType::Named(name);
+        }
+        // GENERICINST, the generic class, an argument count, the arguments.
+        let list = || -> Option<FieldType> {
+            let (&0x15, generic) = element.split_first()? else {
+                return None;
+            };
+            let (name, used) = self.class_in(generic)?;
+            let arguments = generic.get(used..)?;
+            if name != "System.Collections.Generic.List`1" || arguments.first() != Some(&1) {
+                return None;
+            }
+            let (&0x12, _) = arguments.get(1..)?.split_first()? else {
+                return None;
+            };
+            Some(FieldType::ListOf(self.class_in(arguments.get(1..)?)?.0))
+        };
+        list().unwrap_or(FieldType::Other)
+    }
+
     /// ELEMENT_TYPE_VALUETYPE, then the coded `TypeRef` of `UnityEngine.Rect`.
     fn rect_marker(&self) -> Option<Vec<u8>> {
         let row = (1..=self.rows[TYPE_REF])
@@ -338,10 +402,24 @@ impl<'a> Assembly<'a> {
                         })
                     })
                     .collect();
+                let fields = self
+                    .fields_of(row)
+                    .filter(|f| {
+                        self.cell(FIELD, *f, 0)
+                            .is_some_and(|flags| flags & 0x10 == 0)
+                    })
+                    .filter_map(|f| {
+                        Some(Field {
+                            name: self.name(FIELD, f, 1)?.to_string(),
+                            of: self.field_type(self.blob(FIELD, f, 2)?),
+                        })
+                    })
+                    .collect();
                 Some(Type {
                     name,
                     extends,
                     methods,
+                    fields,
                 })
             })
             .collect()
@@ -433,5 +511,51 @@ mod tests {
         assert_eq!(types[1].extends, None);
         assert_eq!(types[1].methods.len(), 1);
         assert!(!types[1].methods[0].takes_rect);
+    }
+
+    #[test]
+    fn fields_are_read_with_list_types() {
+        let mut b = Builder::new();
+        let list = b.type_ref("System.Collections.Generic", "List`1");
+        let gene = b.type_ref("RimWorld", "GeneDef");
+        let def = b.type_ref("Verse", "Def");
+        b.type_def("RimWorld", "XenotypeDef", def);
+        // FIELD, GENERICINST, CLASS List`1, one argument, CLASS GeneDef.
+        b.field_of(
+            "genes",
+            0x06,
+            &[
+                0x06,
+                0x15,
+                0x12,
+                (list << 2 | 1) as u8,
+                1,
+                0x12,
+                (gene << 2 | 1) as u8,
+            ],
+        );
+        b.field_of("count", 0x06, &[0x06, 0x08]);
+        b.field_of("kept", 0x16, &[0x06, 0x12, (gene << 2 | 1) as u8]);
+        b.field_of("gene", 0x06, &[0x06, 0x12, (gene << 2 | 1) as u8]);
+        b.type_def("RimWorld", "Other", 0);
+        b.field_of("size", 0x06, &[0x06, 0x11, (gene << 2 | 1) as u8]);
+        let dll = b.finish();
+        let types = Assembly::read(&dll).unwrap().types();
+        let field = |name: &str, of: FieldType| Field {
+            name: name.into(),
+            of,
+        };
+        assert_eq!(
+            types[0].fields,
+            [
+                field("genes", FieldType::ListOf("RimWorld.GeneDef".into())),
+                field("count", FieldType::Other),
+                field("gene", FieldType::Named("RimWorld.GeneDef".into())),
+            ]
+        );
+        assert_eq!(
+            types[1].fields,
+            [field("size", FieldType::Named("RimWorld.GeneDef".into()))]
+        );
     }
 }

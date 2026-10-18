@@ -178,6 +178,15 @@ fn ordered(count: usize, rules: &[Rule], place: &[usize]) -> Option<Vec<usize>> 
     (order.len() == count).then_some(order)
 }
 
+/// True when the rules already put `x` before `y`, directly or through others.
+pub fn reach(count: usize, rules: &[Rule]) -> impl Fn(usize, usize) -> bool {
+    let mut after: Vec<Vec<usize>> = vec![Vec::new(); count];
+    for rule in rules.iter().filter(|r| r.first < count && r.then < count) {
+        after[rule.first].push(rule.then);
+    }
+    move |x, y| x < count && y < count && reaches(&after, x, y)
+}
+
 fn reaches(after: &[Vec<usize>], from: usize, to: usize) -> bool {
     let mut seen = vec![false; after.len()];
     let mut stack = vec![from];

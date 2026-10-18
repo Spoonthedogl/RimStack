@@ -25,6 +25,9 @@ pub mod qobject {
         #[qproperty(QString, sort_note, cxx_name = "sortNote")]
         #[qproperty(QString, sort_more, cxx_name = "sortMore")]
         #[qproperty(i32, sort_pending, cxx_name = "sortPending")]
+        #[qproperty(bool, sort_waiting, cxx_name = "sortWaiting")]
+        /// A patch simulation is running.
+        #[qproperty(bool, patching)]
         #[qproperty(i32, sort_move_count, cxx_name = "sortMoveCount")]
         #[qproperty(i32, errors)]
         #[qproperty(i32, warnings)]
@@ -295,6 +298,7 @@ pub struct ModsDataRust {
     owned_inactive: UniquePtr<ModRows>,
     loading: crate::jobs::Lane,
     counting: crate::jobs::Lane,
+    simulating: crate::jobs::Lane,
     texturing: crate::jobs::Lane,
     textures_of: i32,
     dirty: bool,
@@ -305,6 +309,8 @@ pub struct ModsDataRust {
     sort_note: QString,
     sort_more: QString,
     sort_pending: i32,
+    sort_waiting: bool,
+    patching: bool,
     sort_move_count: i32,
     errors: i32,
     warnings: i32,
@@ -346,6 +352,7 @@ impl Default for ModsDataRust {
             owned_inactive: UniquePtr::null(),
             loading: crate::jobs::Lane::default(),
             counting: crate::jobs::Lane::default(),
+            simulating: crate::jobs::Lane::default(),
             texturing: crate::jobs::Lane::default(),
             textures_of: -1,
             dirty: false,
@@ -356,6 +363,8 @@ impl Default for ModsDataRust {
             sort_note: QString::default(),
             sort_more: QString::default(),
             sort_pending: 0,
+            sort_waiting: false,
+            patching: false,
             sort_move_count: 0,
             errors: 0,
             warnings: 0,
@@ -513,7 +522,8 @@ impl qobject::ModsData {
         let app = self.app();
         let Some(members) = self.order.files_to_read(&app) else {
             let installed = self.order.is_installed();
-            self.set_files_read(installed);
+            self.as_mut().set_files_read(installed);
+            self.simulate();
             return;
         };
         self.as_mut().set_files_read(false);
@@ -522,6 +532,24 @@ impl qobject::ModsData {
             self.qt_thread(),
             move || app.read_active_files(members),
             |_, ()| {},
+        );
+    }
+
+    /// A newer run drops the result of an older one.
+    fn simulate(self: Pin<&mut Self>) {
+        if !self.order.is_installed() {
+            return;
+        }
+        let app = self.app();
+        let mods = self.order.list(Side::Active).mods().to_vec();
+        let running = app.simulation_started(&mods);
+        let generation = app.conflicts_generation();
+        let kept = app.clone();
+        self.simulating.run(
+            "patch simulation",
+            self.qt_thread(),
+            move |turn| app.simulate_patches_caught(mods, turn),
+            move |_, found| kept.keep_patched(generation, found, running),
         );
     }
 
@@ -559,17 +587,23 @@ impl qobject::ModsData {
         if changes.contains(Changes::NOTES) {
             order.sync(&app);
         }
-        if changes.contains(Changes::PROBLEMS | Changes::COMMUNITY) {
+        if changes.contains(Changes::PROBLEMS | Changes::COMMUNITY | Changes::PATCHES) {
             order.recheck(&app);
         }
-        if changes.contains(Changes::COMMUNITY | Changes::FILES_READ) {
+        if changes.contains(Changes::COMMUNITY | Changes::FILES_READ | Changes::PATCHES) {
             order.refile(&app);
+        }
+        if changes.contains(Changes::PATCHES) {
+            order.sort_when_patched(&app);
         }
         if changes.contains(Changes::UPDATES | Changes::LAUNCHES) {
             order.settle(&app);
         }
         if changes.contains(Changes::FILES_READ) {
             self.as_mut().set_files_read(true);
+        }
+        if changes.contains(Changes::FILES_READ | Changes::RULES) {
+            self.as_mut().simulate();
         }
         if changes.contains(Changes::TEXTURES) {
             self.as_mut().read_files();
@@ -601,6 +635,7 @@ impl qobject::ModsData {
         self.as_mut().set_unsaved(crate::words::said(&unsaved));
         self.as_mut().set_can_undo(undo);
         self.as_mut().set_can_redo(redo);
+        let waiting = self.as_mut().rust_mut().get_mut().order.sort_waiting();
         let order = &self.order;
         let (errors, warnings) = order.errors_and_warnings();
         let troubled = order.troubles().iter().filter(|t| !t.is_empty()).count();
@@ -622,6 +657,8 @@ impl qobject::ModsData {
         self.as_mut().set_warnings(warnings as i32);
         self.as_mut().set_troubled(troubled as i32);
         self.as_mut().set_previewing(previewing);
+        self.as_mut().set_sort_waiting(waiting);
+        self.as_mut().set_patching(app.simulation_running());
         self.as_mut().set_sort_note(note);
         self.as_mut().set_sort_more(more);
         self.as_mut().set_sort_move_count(moves);
@@ -666,8 +703,11 @@ impl qobject::ModsData {
         );
     }
 
-    fn changed(self: Pin<&mut Self>) {
+    fn changed(mut self: Pin<&mut Self>) {
         let app = self.app();
+        if app.simulation_needed(self.order.list(Side::Active).mods()) {
+            self.as_mut().simulate();
+        }
         self.show();
         app.publish(Changes::LOAD_ORDER);
     }

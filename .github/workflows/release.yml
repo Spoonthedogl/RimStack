@@ -55,6 +55,31 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: ilammy/msvc-dev-cmd@v1
+      # libxml2 links statically with the dynamic CRT, so nothing ships beside rimstack.exe.
+      - name: libxml2, from the cache when it was built before
+        id: libxml2
+        uses: actions/cache/restore@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-libxml2-core-x64-windows-static-md-v1
+      - name: libxml2, built when it was not
+        if: steps.libxml2.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          & C:\vcpkg\vcpkg.exe install "libxml2[core]:x64-windows-static-md"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: libxml2, kept for the next run
+        if: steps.libxml2.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-libxml2-core-x64-windows-static-md-v1
+      - name: Where the build finds libxml2 and libclang
+        shell: pwsh
+        run: |
+          "VCPKG_ROOT=C:\vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "VCPKGRS_TRIPLET=x64-windows-static-md" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Inno Setup, for the installer
         run: choco install innosetup --no-progress -y
       - name: The signing certificate, when there is one
@@ -97,6 +122,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: The icon tool, for the package
         run: brew install librsvg
+      # The system libxml2, from the SDK: nothing for macdeployqt to bundle.
+      - name: Where the build finds libxml2
+        run: echo "LIBXML2=$(xcrun --show-sdk-path)/usr/lib/libxml2.tbd" >> "$GITHUB_ENV"
       - name: The signing certificate, when there is one
         if: env.SIGNED == 'true'
         env:

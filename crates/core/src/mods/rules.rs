@@ -6,8 +6,11 @@ use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Kind {
-    CommunityBottom,
+    /// Hints, weakest first: from files, from a patch simulation, from compiled code.
     Inferred,
+    Patches,
+    Code,
+    CommunityBottom,
     /// The game only checks that a required mod is active; RimStack also loads it first.
     Requires,
     LoadAfter,
@@ -22,14 +25,16 @@ pub enum Kind {
 impl Kind {
     pub fn strength(self) -> u8 {
         match self {
-            // A hint from files gives way to everything, even "at the bottom".
+            // A hint gives way to everything else, even "at the bottom".
             Kind::Inferred => 0,
-            Kind::CommunityBottom => 1,
-            Kind::Requires => 2,
-            Kind::LoadAfter | Kind::LoadBefore => 3,
-            Kind::ForceLoadAfter | Kind::ForceLoadBefore => 4,
-            Kind::CommunityAfter | Kind::CommunityBefore => 5,
-            Kind::Yours => 6,
+            Kind::Patches => 1,
+            Kind::Code => 2,
+            Kind::CommunityBottom => 3,
+            Kind::Requires => 4,
+            Kind::LoadAfter | Kind::LoadBefore => 5,
+            Kind::ForceLoadAfter | Kind::ForceLoadBefore => 6,
+            Kind::CommunityAfter | Kind::CommunityBefore => 7,
+            Kind::Yours => 8,
         }
     }
 }
@@ -51,7 +56,9 @@ impl Rule {
             | Kind::CommunityBefore
             | Kind::CommunityBottom
             | Kind::Yours
-            | Kind::Inferred => None,
+            | Kind::Inferred
+            | Kind::Patches
+            | Kind::Code => None,
         }
     }
 
@@ -118,6 +125,13 @@ pub(crate) fn positions(mods: &[Option<&About>]) -> HashMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hints_rank_by_what_they_rest_on_and_below_every_other_rule() {
+        assert!(Kind::Inferred.strength() < Kind::Patches.strength());
+        assert!(Kind::Patches.strength() < Kind::Code.strength());
+        assert!(Kind::Code.strength() < Kind::CommunityBottom.strength());
+    }
     use crate::rimworld::about::Versioned;
 
     fn about(id: &str) -> About {

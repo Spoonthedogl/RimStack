@@ -43,10 +43,40 @@ pub struct SortMove {
 }
 
 impl LoadOrder {
+    /// Waits while a patch simulation runs: its hints are part of the order.
     pub fn preview_sort(&mut self, app: &App) {
-        if self.preview.is_some() || !self.installed {
+        if self.preview.is_some() || !self.installed || self.sort_waiting() {
             return;
         }
+        if app.simulation_running() {
+            self.sort_waiting = Some(self.active_ids());
+            return;
+        }
+        self.sort_now(app);
+    }
+
+    /// Whether Sort is held for a simulation; a wait over a list that has since changed ends here.
+    pub fn sort_waiting(&mut self) -> bool {
+        if self.sort_waiting.is_some() && self.sort_waiting != Some(self.active_ids()) {
+            self.sort_waiting = None;
+        }
+        self.sort_waiting.is_some()
+    }
+
+    /// Runs the held Sort once no simulation is running.
+    pub fn sort_when_patched(&mut self, app: &App) {
+        if !self.sort_waiting() || app.simulation_running() {
+            return;
+        }
+        self.sort_waiting = None;
+        self.sort_now(app);
+    }
+
+    fn active_ids(&self) -> Vec<String> {
+        self.active.mods().iter().map(|m| m.id.clone()).collect()
+    }
+
+    fn sort_now(&mut self, app: &App) {
         let loaded = app.library();
         let Ok((library, _)) = &*loaded else {
             return;
@@ -206,7 +236,12 @@ fn note(mods: &[Mod], sorted: &rimstack_core::mods::sort::Sorted, moves: usize) 
     let each: Vec<Sentence> = sorted
         .dropped
         .iter()
-        .filter(|r| !matches!(r.kind, Kind::CommunityBottom | Kind::Inferred))
+        .filter(|r| {
+            !matches!(
+                r.kind,
+                Kind::CommunityBottom | Kind::Inferred | Kind::Patches | Kind::Code
+            )
+        })
         .map(|r| describe::rule(r, mods))
         .collect();
     if !each.is_empty() {

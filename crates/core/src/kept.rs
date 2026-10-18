@@ -5,5 +5,6 @@ pub mod lists;
 pub mod new_mods;
 pub mod notes;
 pub mod owntheme;
+pub mod patched;
 pub mod settings;
 pub mod updates;

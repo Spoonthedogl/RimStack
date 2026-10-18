@@ -1,3 +1,4 @@
+use super::patches::members_of;
 use crate::App;
 use rimstack_core::base::locks::Shared;
 use rimstack_core::kept::settings::Switch;
@@ -6,6 +7,7 @@ use rimstack_core::mods::infer;
 use rimstack_core::mods::library::{Library, ModId};
 use rimstack_core::mods::list::Mod;
 use rimstack_core::mods::ordering::{self, Sources};
+use rimstack_core::mods::patch_order::Unfixed;
 use rimstack_core::mods::rules::Rule;
 use rimstack_core::mods::sort;
 use rimstack_core::rimworld::{loadfolders, paths::Source};
@@ -85,6 +87,8 @@ impl Detected {
 fn with_sources<T>(
     app: &App,
     from_files: &[infer::Inferred],
+    patches: &[infer::Inferred],
+    hints: bool,
     with: impl FnOnce(Sources) -> T,
 ) -> T {
     let yours = app.user_rules().reading();
@@ -96,13 +100,40 @@ fn with_sources<T>(
             .as_ref()
             .filter(|_| settings.switch(Switch::CommunityRules)),
         from_files,
-        hints: settings.switch(Switch::FileHints),
+        patches,
+        hints,
     })
+}
+
+/// The simulation's result when it was made for this very list of mods, else nothing.
+fn simulated(app: &App, mods: &[Mod]) -> (Vec<infer::Inferred>, Vec<Unfixed>) {
+    let kept = app.patched().reading();
+    let Some(patched) = kept.as_ref().filter(|p| p.members == members_of(mods)) else {
+        return Default::default();
+    };
+    let place = |id: ModId| mods.iter().position(|m| m.installed == Some(id));
+    let hints = patched.hints.iter().filter_map(|(first, then, why)| {
+        Some(infer::Inferred {
+            first: place(*first)?,
+            then: place(*then)?,
+            why: why.clone(),
+            code: false,
+        })
+    });
+    let unfixed = patched.unfixed.iter().filter_map(|(id, unfixed)| {
+        Some(Unfixed {
+            mod_at: place(*id)?,
+            ..unfixed.clone()
+        })
+    });
+    (hints.collect(), unfixed.collect())
 }
 
 pub fn all_rules(app: &App, detected: &mut Detected, library: &Library, mods: &[Mod]) -> Vec<Rule> {
     let from_files = detected.of(app, library, mods);
-    with_sources(app, &from_files, |sources| {
+    let (patches, _) = simulated(app, mods);
+    let hints = app.settings().switch(Switch::FileHints);
+    with_sources(app, &from_files, &patches, hints, |sources| {
         ordering::all_rules(library, mods, sources)
     })
 }
@@ -114,9 +145,54 @@ pub fn sorted_by_category(
     mods: Vec<Mod>,
 ) -> (Vec<Mod>, sort::Sorted) {
     let from_files = detected.of(app, library, &mods);
-    with_sources(app, &from_files, |sources| {
+    let (patches, _) = simulated(app, &mods);
+    let hints = app.settings().switch(Switch::FileHints);
+    with_sources(app, &from_files, &patches, hints, |sources| {
         ordering::sorted_by_category(library, mods, sources)
     })
+}
+
+/// What Sort writes without the simulation's hints, and what it writes with some added.
+pub struct Replay<'a> {
+    app: &'a App,
+    library: &'a Library,
+    mods: &'a [Mod],
+    from_files: Vec<infer::Inferred>,
+}
+
+impl<'a> Replay<'a> {
+    pub fn new(app: &'a App, library: &'a Library, mods: &'a [Mod]) -> Self {
+        let shown = app.settings().switch(Switch::FileHints);
+        let mut from_files = Detected::default().of(app, library, mods);
+        from_files.retain(|d| d.code || shown);
+        Self {
+            app,
+            library,
+            mods,
+            from_files,
+        }
+    }
+
+    pub fn rules(&self) -> Vec<Rule> {
+        with_sources(self.app, &self.from_files, &[], true, |sources| {
+            ordering::all_rules(self.library, self.mods, sources)
+        })
+    }
+
+    pub fn sort(&self, extra: &[Rule]) -> sort::Sorted {
+        let patches: Vec<infer::Inferred> = extra
+            .iter()
+            .map(|r| infer::Inferred {
+                first: r.first,
+                then: r.then,
+                why: Default::default(),
+                code: false,
+            })
+            .collect();
+        with_sources(self.app, &self.from_files, &patches, true, |sources| {
+            ordering::sorted_by_category(self.library, self.mods.to_vec(), sources).1
+        })
+    }
 }
 
 /// Read once for both lists, so a mod is marked the same on either side.
@@ -177,7 +253,14 @@ pub fn troubles(
         ignored.collect()
     };
     let workshop = app.workshop_names();
-    let mut found = describe::troubles(library, mods, trust.versions(&trust.trusted), &workshop);
+    let (_, unfixed) = simulated(app, mods);
+    let mut found = describe::troubles(
+        library,
+        mods,
+        trust.versions(&trust.trusted),
+        &workshop,
+        &unfixed,
+    );
     describe::without_ignored(&mut found, mods, &ignored);
     let by_you = trust.versions(&trust.excused);
     (found, describe::version_ignored(library, mods, by_you))

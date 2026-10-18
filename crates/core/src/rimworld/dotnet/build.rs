@@ -73,9 +73,10 @@ impl Builder {
             extends_ref << 2 | 1
         };
         let next_method = self.rows[super::METHOD_DEF].len() as u32 + 1;
+        let next_field = self.rows[super::FIELD].len() as u32 + 1;
         self.row(
             super::TYPE_DEF,
-            &[0, name, namespace, extends, 1, next_method],
+            &[0, name, namespace, extends, next_field, next_method],
         )
     }
 
@@ -98,6 +99,12 @@ impl Builder {
         self.row(super::FIELD, &[0, name, signature])
     }
 
+    /// A field of the last type added; `flags` 0x10 makes it static.
+    pub fn field_of(&mut self, name: &str, flags: u32, signature: &[u8]) -> u32 {
+        let (name, signature) = (self.string(name), self.blob(signature));
+        self.row(super::FIELD, &[flags, name, signature])
+    }
+
     pub fn implements(&mut self, class: u32, interface: u32) {
         self.row(super::INTERFACE_IMPL, &[class, interface << 2]);
     }
@@ -110,9 +117,17 @@ impl Builder {
     pub fn type_def_under(&mut self, namespace: &str, name: &str, extends_def: u32) -> u32 {
         let (name, namespace) = (self.string(name), self.string(namespace));
         let next_method = self.rows[METHOD_DEF].len() as u32 + 1;
+        let next_field = self.rows[super::FIELD].len() as u32 + 1;
         self.row(
             super::TYPE_DEF,
-            &[0, name, namespace, extends_def << 2, 1, next_method],
+            &[
+                0,
+                name,
+                namespace,
+                extends_def << 2,
+                next_field,
+                next_method,
+            ],
         )
     }
 

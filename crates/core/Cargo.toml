@@ -8,6 +8,9 @@ version.workspace = true
 [dependencies]
 # Read-only XML tree for files written by strangers (MIT/Apache-2.0).
 roxmltree = "0.21"
+# The patch simulation's document and XPath: libxml2's XPath is 1.0, as
+# .NET's is, and the one engine fast enough on a whole mod list (MIT).
+libxml = "0.3"
 # Scan mod folders on all cores (MIT/Apache-2.0).
 rayon = "1"
 # Community rule files are JSON (MIT/Apache-2.0).

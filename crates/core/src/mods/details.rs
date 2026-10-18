@@ -55,7 +55,7 @@ fn said_by(rule: &Rule, at: usize) -> Sentence {
     match (rule.broken(), rule.kind, rule.declared_by()) {
         (true, ..) => say!("out of order"),
         (_, Kind::Yours, _) => say!("your rule"),
-        (_, Kind::Inferred, _) => say!("detected from files"),
+        (_, Kind::Inferred | Kind::Patches | Kind::Code, _) => say!("detected from files"),
         (_, _, None) => say!("community rule"),
         (_, Kind::Requires, Some(by)) if by == at => say!("required"),
         (_, Kind::Requires, _) => say!("requires this mod"),

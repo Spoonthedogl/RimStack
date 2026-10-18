@@ -110,6 +110,14 @@ Item {
                 Btn { enabled: Hub.mods.canUndo && !Hub.mods.previewing; icon: "undo-2"; tip: Theme.say("Undo (Ctrl + Z)"); onClicked: Hub.mods.undo() }
                 Btn { enabled: Hub.mods.canRedo && !Hub.mods.previewing; icon: "redo-2"; tip: Theme.say("Redo (Ctrl + Shift + Z)"); onClicked: Hub.mods.redo() }
             }
+            BusyIndicator {
+                visible: Hub.mods.sortWaiting
+                running: visible
+                implicitWidth: Theme.control
+                implicitHeight: Theme.control
+                padding: Theme.sized(6)
+                Tip { text: Theme.say("Reading the mods' patches…") }
+            }
             Btn {
                 id: sortButton
                 tone: Theme.moved

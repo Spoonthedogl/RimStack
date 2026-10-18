@@ -124,6 +124,10 @@ impl Game {
     /// a `Managed` folder of the game's data: `*_Data/Managed`, or
     /// `Contents/Resources/Data/Managed` on macOS.
     pub fn find(game_dir: &Path) -> Option<Self> {
+        Self::read(&std::fs::read(Self::assembly_path(game_dir)?).ok()?)
+    }
+
+    pub fn assembly_path(game_dir: &Path) -> Option<PathBuf> {
         let inside = std::fs::read_dir(game_dir)
             .ok()?
             .flatten()
@@ -136,11 +140,10 @@ impl Game {
         let places: Vec<PathBuf> = std::iter::once(game_dir.to_path_buf())
             .chain(below)
             .collect();
-        let dll = places
+        places
             .iter()
             .map(|p| p.join("Assembly-CSharp.dll"))
-            .find(|f| f.is_file())?;
-        Self::read(&std::fs::read(dll).ok()?)
+            .find(|f| f.is_file())
     }
 
     pub(crate) fn drawing_types(&self) -> &HashSet<String> {

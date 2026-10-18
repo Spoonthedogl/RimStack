@@ -80,7 +80,7 @@ impl Turn {
 }
 
 impl Lane {
-    fn next(&self) -> Turn {
+    pub(crate) fn next(&self) -> Turn {
         Turn {
             asked: self.asked.clone(),
             mine: self.asked.fetch_add(1, Ordering::SeqCst) + 1,

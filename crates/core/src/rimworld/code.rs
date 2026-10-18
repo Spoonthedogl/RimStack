@@ -164,33 +164,37 @@ fn assembly_folders(mod_root: &Path, game_version: &str) -> Vec<PathBuf> {
 /// say nothing about the mod.
 pub fn read(mod_root: &Path, game_version: &str, game: &Game) -> Code {
     let mut code = Code::default();
-    for folder in assembly_folders(mod_root, game_version) {
-        let files = std::fs::read_dir(folder).into_iter().flatten().flatten();
-        for dll in files.map(|e| e.path()) {
-            if !dll
-                .extension()
-                .is_some_and(|x| x.eq_ignore_ascii_case("dll"))
-            {
-                continue;
-            }
-            let Ok(bytes) = std::fs::read(&dll) else {
-                continue;
-            };
-            let Some(assembly) = Assembly::read(&bytes) else {
-                continue;
-            };
-            if assembly.references().iter().any(|r| r == "Assembly-CSharp") {
-                code.add(
-                    &assembly.types(),
-                    &assembly.patches(),
-                    &assembly.looked_up(),
-                    &assembly.hand_applied(),
-                    game,
-                );
-            }
+    for dll in assembly_files(mod_root, game_version) {
+        let Ok(bytes) = std::fs::read(&dll) else {
+            continue;
+        };
+        let Some(assembly) = Assembly::read(&bytes) else {
+            continue;
+        };
+        if assembly.references().iter().any(|r| r == "Assembly-CSharp") {
+            code.add(
+                &assembly.types(),
+                &assembly.patches(),
+                &assembly.looked_up(),
+                &assembly.hand_applied(),
+                game,
+            );
         }
     }
     code.finish()
+}
+
+/// Every `.dll` in the mod's assembly folders for that game version.
+pub fn assembly_files(mod_root: &Path, game_version: &str) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for folder in assembly_folders(mod_root, game_version) {
+        let files = std::fs::read_dir(folder).into_iter().flatten().flatten();
+        found.extend(files.map(|e| e.path()).filter(|dll| {
+            dll.extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("dll"))
+        }));
+    }
+    found
 }
 
 #[cfg(test)]
@@ -200,6 +204,7 @@ mod tests {
 
     fn a_type(name: &str, extends: Option<&str>, methods: &[(&str, bool)]) -> Type {
         Type {
+            fields: Vec::new(),
             name: name.into(),
             extends: extends.map(String::from),
             methods: methods

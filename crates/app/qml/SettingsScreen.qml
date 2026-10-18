@@ -736,6 +736,7 @@ Item {
                 }
                 Line { title: Theme.say("Licence"); Text { Layout.fillWidth: true; color: Theme.ink; font.pixelSize: Theme.body; text: Theme.say("GNU General Public License, version 3 or later") } }
                 Line { title: Theme.say("Icons"); Text { Layout.fillWidth: true; color: Theme.ink; font.pixelSize: Theme.body; text: Theme.say("Lucide, ISC licence") } }
+                Line { title: Theme.say("XML patching"); Text { Layout.fillWidth: true; color: Theme.ink; font.pixelSize: Theme.body; text: Theme.say("libxml2, MIT licence") } }
             }
         }
     }
