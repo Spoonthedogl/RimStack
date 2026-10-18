@@ -1,3 +1,4 @@
+use crate::rimworld::patchsettings::Settings;
 use document::Document;
 use operations::apply;
 use std::collections::{BTreeSet, HashMap};
@@ -75,10 +76,10 @@ pub fn subset_runs() -> (u64, std::time::Duration) {
 }
 
 impl Loaded {
-    pub fn read(mods: Vec<ModFiles>, active: &Active, types: Types) -> Loaded {
+    pub fn read(mods: Vec<ModFiles>, active: &Active, settings: &Settings, types: Types) -> Loaded {
         Loaded {
             document: Document::load(&mods),
-            patches: Patches::read(&mods, active),
+            patches: Patches::read(&mods, active, settings),
             types,
             active: active.clone(),
             places: mods.len(),
@@ -416,7 +417,12 @@ mod tests {
             }
             files.push(files_of(&root, &[]));
         }
-        Loaded::read(files, &Active::default(), game_types())
+        Loaded::read(
+            files,
+            &Active::default(),
+            &Settings::default(),
+            game_types(),
+        )
     }
 
     const SKELETAL: &str = "<XenotypeDef><defName>VU_ReturnedSkeletal</defName>\

@@ -1,6 +1,8 @@
 use super::super::{ModFiles, Target};
-use super::read::{Active, Operation, Work, operation};
+use super::read::{Active, Operation, Reading, Work, operation};
+use super::xmlextensions::PatchDefs;
 use crate::rimworld::patching::document::files_in_game_order;
+use crate::rimworld::patchsettings::Settings;
 use libxml::parser::{Parser, ParserOptions};
 use libxml::xpath::Context;
 use std::path::PathBuf;
@@ -26,7 +28,8 @@ pub struct XpathSeen {
     pub refused: bool,
 }
 
-pub fn audit(mods: &[ModFiles], active: &Active) -> Audit {
+pub fn audit(mods: &[ModFiles], active: &Active, settings: &Settings) -> Audit {
+    let defs = PatchDefs::new(mods);
     let mut found = Audit::default();
     let sample = Parser::default().parse_string("<Defs/>").ok();
     let context = sample.as_ref().and_then(|tree| Context::new(tree).ok());
@@ -36,6 +39,7 @@ pub fn audit(mods: &[ModFiles], active: &Active) -> Audit {
         _ => false,
     };
     for (mod_at, files) in mods.iter().enumerate() {
+        let reading = Reading::new(active, settings, &defs);
         for path in files_in_game_order(files, "Patches") {
             found.files += 1;
             let Some(text) = std::fs::read(&path)
@@ -70,7 +74,7 @@ pub fn audit(mods: &[ModFiles], active: &Active) -> Audit {
                 .iter()
                 .filter(|n| n.get_name() == "Operation")
             {
-                let top = operation(node, active);
+                let top = operation(node, &reading);
                 let mut seen = Vec::new();
                 walk(&top, mod_at, &mut found.operations, &mut seen);
                 for xpath in seen {
@@ -109,13 +113,25 @@ fn walk(
         | Work::Insert { xpath, .. }
         | Work::Replace { xpath, .. }
         | Work::AddModExtension { xpath, .. }
-        | Work::Remove { xpath }
+        | Work::Remove { xpath, .. }
         | Work::SetName { xpath, .. }
         | Work::Attribute { xpath, .. }
         | Work::Test { xpath } => own(xpath, xpaths),
-        Work::Sequence(inner) => inner
+        Work::Sequence(inner)
+        | Work::Nested {
+            operations: inner, ..
+        } => inner
             .iter()
             .for_each(|o| walk(o, mod_at, operations, xpaths)),
+        Work::Branch { xpath, yes, no } => {
+            own(xpath, xpaths);
+            yes.iter()
+                .chain(no)
+                .for_each(|o| walk(o, mod_at, operations, xpaths));
+        }
+        Work::SafeRemove { xpath } => own(xpath, xpaths),
+        Work::Safe(safe) => own(&safe.xpath, xpaths),
+        Work::Fails => {}
         Work::Conditional {
             xpath,
             matched,

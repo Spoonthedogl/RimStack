@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 mod audit;
 mod read;
+mod safe;
+mod xmlextensions;
 pub use audit::{Audit, XpathSeen, audit};
 pub(super) use read::wanted_by;
 pub use read::{Active, Patches};
@@ -119,13 +121,20 @@ impl Operation {
             | Work::Insert { xpath, .. }
             | Work::Replace { xpath, .. }
             | Work::AddModExtension { xpath, .. }
-            | Work::Remove { xpath }
+            | Work::Remove { xpath, .. }
             | Work::SetName { xpath, .. }
             | Work::Attribute { xpath, .. }
             | Work::Test { xpath }
             | Work::Conditional { xpath, .. }
+            | Work::SafeRemove { xpath }
+            | Work::Branch { xpath, .. }
             | Work::Unknown { xpath, .. } => xpath.as_deref(),
-            Work::Sequence(_) | Work::FindMod { .. } | Work::Bare => None,
+            Work::Safe(safe) => safe.xpath.as_deref(),
+            Work::Sequence(_)
+            | Work::Nested { .. }
+            | Work::Fails
+            | Work::FindMod { .. }
+            | Work::Bare => None,
         }
     }
 
@@ -139,7 +148,9 @@ impl Operation {
             format!("Verse.{}", self.class)
         };
         let path = self.xpath().unwrap_or_default();
+        let by_framework = self.class.starts_with("XmlExtensions.");
         match &self.work {
+            _ if by_framework => class,
             Work::Sequence(operations) => {
                 let last =
                     last_failed.map_or(String::new(), |l| format!(", lastFailedOperation={l}"));
@@ -200,7 +211,8 @@ impl Run<'_> {
                 xpath,
                 value,
                 prepend,
-            } => self.each(xpath, value, |run, mut node, value| {
+                single,
+            } => self.each(xpath, value, *single, |run, mut node, value| {
                 if node.get_type() == Some(NodeType::ElementNode) {
                     run.mark(&node);
                     if *prepend {
@@ -214,7 +226,8 @@ impl Run<'_> {
                 xpath,
                 value,
                 prepend,
-            } => self.each(xpath, value, |run, mut node, value| {
+                single,
+            } => self.each(xpath, value, *single, |run, mut node, value| {
                 if run.mark_parent(&node) {
                     if *prepend {
                         value.iter().rev().for_each(|f| run.before(&mut node, f));
@@ -223,14 +236,18 @@ impl Run<'_> {
                     }
                 }
             }),
-            Work::Replace { xpath, value } => self.each(xpath, value, |run, mut node, value| {
+            Work::Replace {
+                xpath,
+                value,
+                single,
+            } => self.each(xpath, value, *single, |run, mut node, value| {
                 if run.mark_parent(&node) {
                     value.iter().for_each(|f| run.before(&mut node, f));
                     node.unlink_node();
                 }
             }),
             Work::AddModExtension { xpath, value } => {
-                self.each(xpath, value, |run, mut node, value| {
+                self.each(xpath, value, false, |run, mut node, value| {
                     if node.get_type() != Some(NodeType::ElementNode) {
                         return;
                     }
@@ -246,16 +263,20 @@ impl Run<'_> {
                     value.iter().for_each(|f| run.append(&mut list, f));
                 })
             }
-            Work::Remove { xpath } => self.each(xpath, &Some(Vec::new()), |run, mut node, _| {
-                if run.mark_parent(&node) {
-                    node.unlink_node();
-                }
-            }),
-            Work::SetName { xpath, name } => {
+            Work::Remove { xpath, single } => self.remove(xpath, *single),
+            Work::SafeRemove { xpath } => match self.remove(xpath, false) {
+                Verdict::No if xpath.is_some() => Verdict::Yes,
+                verdict => verdict,
+            },
+            Work::SetName {
+                xpath,
+                name,
+                single,
+            } => {
                 let Some(name) = name else {
                     return Verdict::No;
                 };
-                self.each(xpath, &Some(Vec::new()), |run, mut node, _| {
+                self.each(xpath, &Some(Vec::new()), *single, |run, mut node, _| {
                     if run.mark_parent(&node)
                         && let Ok(mut renamed) = Node::new(name, None, run.doc.tree())
                     {
@@ -274,7 +295,18 @@ impl Run<'_> {
                 value,
                 change,
             } => self.attribute(xpath, attribute.as_deref(), value, change),
-            Work::Sequence(operations) => self.sequence(operations, blame),
+            Work::Sequence(operations) | Work::Nested { operations } => {
+                self.sequence(operations, blame)
+            }
+            Work::Fails => Verdict::No,
+            Work::Branch { xpath, yes, no } => {
+                let found = match self.nodes(xpath) {
+                    Ok(found) => !found.is_empty(),
+                    Err(verdict) => return verdict,
+                };
+                self.sequence(if found { yes } else { no }, blame)
+            }
+            Work::Safe(safe) => self.safe(safe),
             Work::Conditional {
                 xpath,
                 matched,
@@ -367,20 +399,33 @@ impl Run<'_> {
         Verdict::from(result)
     }
 
-    /// Runs `change` on each match; true when there was one. A missing `value` throws in the game before any match.
+    fn remove(&mut self, xpath: &Option<String>, single: bool) -> Verdict {
+        self.each(xpath, &Some(Vec::new()), single, |run, mut node, _| {
+            if run.mark_parent(&node) {
+                node.unlink_node();
+            }
+        })
+    }
+
+    /// Runs `change` on each match (on the first only when `single`); true when there was one. A missing
+    /// `value` throws in the game before any match.
     fn each(
         &mut self,
         xpath: &Option<String>,
         value: &Option<Vec<Frag>>,
+        single: bool,
         mut change: impl FnMut(&mut Self, Node, &[Frag]),
     ) -> Verdict {
         let Some(value) = value else {
             return Verdict::No;
         };
-        let nodes = match self.nodes(xpath) {
+        let mut nodes = match self.nodes(xpath) {
             Ok(nodes) => nodes,
             Err(verdict) => return verdict,
         };
+        if single {
+            nodes.truncate(1);
+        }
         let any = !nodes.is_empty();
         for node in nodes {
             if let Some(key) = self.doc.def_of(&node) {

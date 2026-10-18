@@ -2,6 +2,7 @@ use super::*;
 use crate::rimworld::loadfolders;
 use crate::rimworld::patching::ModFiles;
 use crate::rimworld::patching::document::Document;
+use crate::rimworld::patchsettings::Settings;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -45,6 +46,16 @@ fn mod_files(root: &Path) -> ModFiles {
 }
 
 fn run_mods(defs: &str, patches: &[&str], active: &Active, order: &[usize]) -> Outcome {
+    run_mods_with(defs, patches, active, &Settings::default(), order)
+}
+
+fn run_mods_with(
+    defs: &str,
+    patches: &[&str],
+    active: &Active,
+    settings: &Settings,
+    order: &[usize],
+) -> Outcome {
     let tmp = tempfile::tempdir().unwrap();
     let mut mods = Vec::new();
     for (at, patch) in patches.iter().enumerate() {
@@ -58,7 +69,7 @@ fn run_mods(defs: &str, patches: &[&str], active: &Active, order: &[usize]) -> O
         mods.push(mod_files(&root));
     }
     let mut document = Document::load(&mods);
-    let patches = Patches::read(&mods, active);
+    let patches = Patches::read(&mods, active, settings);
     let (mut unknown, mut traces, mut failures) = (Vec::new(), Vec::new(), Vec::new());
     apply(
         &mut document,
@@ -498,7 +509,7 @@ fn success_modes() {
 #[test]
 fn an_unknown_class_marks_its_target() {
     let unknown = op(
-        "XmlExtensions.PatchOperationSafeAdd",
+        "XmlExtensions.PatchOperationMath",
         &format!("{}<value><x/></value>", xpath_a("/comps")),
     );
     let out = run(&[unknown]);
@@ -523,7 +534,7 @@ fn an_unknown_class_marks_its_target() {
 #[test]
 fn an_unknown_wrapper_marks_only_what_its_inner_xpaths_aim_at() {
     let wrapper = op(
-        "XmlExtensions.OptionalPatch",
+        "XmlExtensions.OptionalPatchExternal",
         &format!(
             "<caseTrue Class=\"PatchOperationAdd\">{}<value><x/></value></caseTrue>",
             xpath_a("/comps")
@@ -549,7 +560,7 @@ fn an_unknown_operation_without_any_xpath_reaches_nothing() {
 #[test]
 fn an_unknown_operation_reaches_every_element_named_like_an_xpath_at_any_depth() {
     let wrapper = op(
-        "XmlExtensions.OptionalPatch",
+        "XmlExtensions.OptionalPatchExternal",
         "<inner><xpathLocal>Defs/ThingDef[defName=\"B\"]</xpathLocal><deeper>\
          <sourceXPath>Defs/ThingDef[defName=\"A\"]</sourceXPath><texPath>Defs/X</texPath>\
          </deeper></inner>",
@@ -692,3 +703,6 @@ fn a_def_named_by_a_path_that_matches_nothing_is_read() {
     assert_eq!(out.traces[0].read, BTreeSet::from([key("A")]));
     assert!(out.traces[0].wrote.is_empty());
 }
+
+mod frameworks;
+mod xmlextensions;

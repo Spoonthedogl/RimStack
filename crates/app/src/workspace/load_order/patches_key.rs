@@ -24,6 +24,8 @@ pub(super) struct Made<'a> {
     pub mods: &'a [Part<'a>],
     pub order: &'a [usize],
     pub rules: &'a [Rule],
+    /// The frameworks' settings files, which the simulated patches read.
+    pub settings: &'a [PathBuf],
 }
 
 /// `DefaultHasher` is SipHash with fixed keys, which is the same on every run of one build; the
@@ -32,6 +34,9 @@ pub(super) fn key_of(made: &Made) -> String {
     let mut hasher = DefaultHasher::new();
     (env!("CARGO_PKG_VERSION"), FORMAT, made.game_version).hash(&mut hasher);
     stat(made.game_assembly).hash(&mut hasher);
+    for file in made.settings {
+        (file, stat(Some(file))).hash(&mut hasher);
+    }
     let digests: Vec<u64> = made.mods.par_iter().map(digest).collect();
     digests.hash(&mut hasher);
     let identity = |at: usize| made.mods.get(at).map(|m| m.identity);
@@ -61,4 +66,34 @@ fn stat(file: Option<&Path>) -> Option<(u64, u128)> {
     let meta = std::fs::metadata(file?).ok()?;
     let stamp = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
     Some((meta.len(), stamp.as_nanos()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(settings: &[PathBuf]) -> String {
+        key_of(&Made {
+            game_version: "1.7",
+            game_assembly: None,
+            mods: &[],
+            order: &[],
+            rules: &[],
+            settings,
+        })
+    }
+
+    #[test]
+    fn a_changed_settings_file_changes_the_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("ModSettingsFrameworkMod_Settings.xml");
+        let files = [file.clone(), tmp.path().join("Mod_2574315206_XmlMod.xml")];
+        let absent = key(&files);
+        std::fs::write(&file, "<a/>").unwrap();
+        let written = key(&files);
+        assert_ne!(absent, written);
+        assert_eq!(written, key(&files));
+        std::fs::write(&file, "<a>b</a>").unwrap();
+        assert_ne!(written, key(&files));
+    }
 }

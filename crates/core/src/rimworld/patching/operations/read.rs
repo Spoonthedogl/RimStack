@@ -1,6 +1,9 @@
 use super::super::ModFiles;
 use super::super::document::files_in_game_order;
+use super::safe::Safe;
+use super::xmlextensions;
 use crate::note;
+use crate::rimworld::patchsettings::Settings;
 use libxml::parser::{Parser, ParserOptions};
 use libxml::tree::{Node, NodeType};
 use rayon::prelude::*;
@@ -27,8 +30,17 @@ impl Active {
         list.split(',').any(|id| self.id(id))
     }
 
-    fn has_name(&self, name: &str) -> bool {
+    pub(super) fn has_name(&self, name: &str) -> bool {
         self.names.contains(name)
+    }
+
+    pub(super) fn has_name_like(&self, name: &str) -> bool {
+        let name = name.to_lowercase();
+        self.names.iter().any(|n| n.to_lowercase() == name)
+    }
+
+    pub(super) fn has_id_like(&self, id: &str) -> bool {
+        self.ids.contains(id.to_lowercase().as_str())
     }
 }
 
@@ -75,16 +87,19 @@ pub(super) enum Work {
     Add {
         xpath: Option<String>,
         value: Option<Vec<Frag>>,
+        single: bool,
         prepend: bool,
     },
     Insert {
         xpath: Option<String>,
         value: Option<Vec<Frag>>,
+        single: bool,
         prepend: bool,
     },
     Replace {
         xpath: Option<String>,
         value: Option<Vec<Frag>>,
+        single: bool,
     },
     AddModExtension {
         xpath: Option<String>,
@@ -92,10 +107,12 @@ pub(super) enum Work {
     },
     Remove {
         xpath: Option<String>,
+        single: bool,
     },
     SetName {
         xpath: Option<String>,
         name: Option<String>,
+        single: bool,
     },
     Attribute {
         xpath: Option<String>,
@@ -118,6 +135,22 @@ pub(super) enum Work {
         matched: Option<Box<Operation>>,
         unmatched: Option<Box<Operation>>,
     },
+    /// A framework's operation as the settings made it: what runs in order, stopping at the first failure.
+    Nested {
+        operations: Vec<Operation>,
+    },
+    /// Fails without looking at the document, as a framework's operation that throws or has what it needs missing.
+    Fails,
+    /// Removes every match and succeeds when there is none.
+    SafeRemove {
+        xpath: Option<String>,
+    },
+    Branch {
+        xpath: Option<String>,
+        yes: Vec<Operation>,
+        no: Vec<Operation>,
+    },
+    Safe(Safe),
     /// `aimed` is the text of every XPath element inside it, at any depth.
     Unknown {
         xpath: Option<String>,
@@ -132,6 +165,8 @@ impl Patches {
             match &operation.work {
                 Work::Unknown { .. } => *found.entry(operation.class.clone()).or_default() += 1,
                 Work::Sequence(operations) => operations.iter().for_each(|o| count(o, found)),
+                Work::Nested { operations } => operations.iter().for_each(|o| count(o, found)),
+                Work::Branch { yes, no, .. } => yes.iter().chain(no).for_each(|o| count(o, found)),
                 Work::Conditional {
                     matched, unmatched, ..
                 }
@@ -151,13 +186,15 @@ impl Patches {
         found
     }
 
-    pub fn read(mods: &[ModFiles], active: &Active) -> Patches {
+    pub fn read(mods: &[ModFiles], active: &Active, settings: &Settings) -> Patches {
+        let defs = xmlextensions::PatchDefs::new(mods);
         let mods = mods
             .par_iter()
             .map(|files| {
+                let reading = Reading::new(active, settings, &defs);
                 files_in_game_order(files, "Patches")
                     .into_par_iter()
-                    .filter_map(|path| patch_file(path, active))
+                    .filter_map(|path| patch_file(path, &reading))
                     .collect()
             })
             .collect();
@@ -165,7 +202,39 @@ impl Patches {
     }
 }
 
-fn patch_file(path: PathBuf, active: &Active) -> Option<PatchFile> {
+/// What turns a patch element into an operation: the frameworks' settings are resolved while reading.
+#[derive(Clone, Copy)]
+pub(super) struct Reading<'a> {
+    pub active: &'a Active,
+    pub settings: &'a Settings,
+    pub defs: &'a xmlextensions::PatchDefs<'a>,
+    depth: usize,
+}
+
+impl<'a> Reading<'a> {
+    pub fn new(
+        active: &'a Active,
+        settings: &'a Settings,
+        defs: &'a xmlextensions::PatchDefs<'a>,
+    ) -> Self {
+        Reading {
+            active,
+            settings,
+            defs,
+            depth: 0,
+        }
+    }
+
+    /// One level into an operation that was built from text; `None` past a depth no real patch reaches.
+    pub fn inside(self) -> Option<Self> {
+        (self.depth < 32).then_some(Reading {
+            depth: self.depth + 1,
+            ..self
+        })
+    }
+}
+
+fn patch_file(path: PathBuf, reading: &Reading) -> Option<PatchFile> {
     let tree = std::fs::read_to_string(&path)
         .map_err(|e| e.to_string())
         .and_then(|text| {
@@ -193,7 +262,7 @@ fn patch_file(path: PathBuf, active: &Active) -> Option<PatchFile> {
         .get_child_elements()
         .iter()
         .filter(|node| expected_operation(node, &path))
-        .map(|node| operation(node, active))
+        .map(|node| operation(node, reading))
         .collect();
     Some(PatchFile { path, operations })
 }
@@ -210,23 +279,33 @@ fn expected_operation(node: &Node, path: &Path) -> bool {
     fine
 }
 
-fn child(node: &Node, name: &str) -> Option<Node> {
+pub(super) fn child(node: &Node, name: &str) -> Option<Node> {
     node.get_child_elements()
         .into_iter()
         .find(|c| c.get_name() == name)
 }
 
-fn text_of(node: &Node, name: &str) -> Option<String> {
+pub(super) fn text_of(node: &Node, name: &str) -> Option<String> {
     child(node, name).map(|c| c.get_content().trim().to_string())
 }
 
-fn branch(node: &Node, name: &str, active: &Active) -> Option<Box<Operation>> {
-    child(node, name).map(|c| Box::new(operation(&c, active)))
+fn branch(node: &Node, name: &str, reading: &Reading) -> Option<Box<Operation>> {
+    child(node, name).map(|c| Box::new(operation(&c, reading)))
 }
 
-pub(super) fn operation(node: &Node, active: &Active) -> Operation {
+pub(super) fn operation(node: &Node, reading: &Reading) -> Operation {
     let class = node.get_attribute("Class").unwrap_or_default();
-    let xpath = text_of(node, "xpath");
+    let work = xmlextensions::read(&class, node, reading)
+        .unwrap_or_else(|| vanilla(&class, node, reading));
+    Operation {
+        class,
+        success: success_of(node),
+        work,
+    }
+}
+
+fn vanilla(class: &str, node: &Node, reading: &Reading) -> Work {
+    let (active, xpath) = (reading.active, text_of(node, "xpath"));
     let value = || child(node, "value").map(|v| frags(&v.get_child_nodes()));
     let attribute_work = |change| Work::Attribute {
         xpath: xpath.clone(),
@@ -234,20 +313,23 @@ pub(super) fn operation(node: &Node, active: &Active) -> Operation {
         value: text_of(node, "value").unwrap_or_default(),
         change,
     };
-    let work = match class.strip_prefix("Verse.").unwrap_or(&class) {
+    match class.strip_prefix("Verse.").unwrap_or(class) {
         "PatchOperationAdd" => Work::Add {
             xpath: xpath.clone(),
             value: value(),
             prepend: text_of(node, "order").as_deref() == Some("Prepend"),
+            single: false,
         },
         "PatchOperationInsert" => Work::Insert {
             xpath: xpath.clone(),
             value: value(),
             prepend: text_of(node, "order").as_deref() != Some("Append"),
+            single: false,
         },
         "PatchOperationReplace" => Work::Replace {
             xpath: xpath.clone(),
             value: value(),
+            single: false,
         },
         "PatchOperationAddModExtension" => Work::AddModExtension {
             xpath: xpath.clone(),
@@ -255,10 +337,12 @@ pub(super) fn operation(node: &Node, active: &Active) -> Operation {
         },
         "PatchOperationRemove" => Work::Remove {
             xpath: xpath.clone(),
+            single: false,
         },
         "PatchOperationSetName" => Work::SetName {
             xpath: xpath.clone(),
             name: text_of(node, "name"),
+            single: false,
         },
         "PatchOperationAttributeAdd" => attribute_work(Change::Add),
         "PatchOperationAttributeSet" => attribute_work(Change::Set),
@@ -272,15 +356,15 @@ pub(super) fn operation(node: &Node, active: &Active) -> Operation {
                     list.get_child_elements()
                         .iter()
                         .filter(|li| wanted(li, active))
-                        .map(|li| operation(li, active))
+                        .map(|li| operation(li, reading))
                         .collect()
                 })
                 .unwrap_or_default(),
         ),
         "PatchOperationConditional" => Work::Conditional {
             xpath: xpath.clone(),
-            matched: branch(node, "match", active),
-            unmatched: branch(node, "nomatch", active),
+            matched: branch(node, "match", reading),
+            unmatched: branch(node, "nomatch", reading),
         },
         "PatchOperationFindMod" => {
             let mods: Vec<String> = child(node, "mods")
@@ -294,24 +378,21 @@ pub(super) fn operation(node: &Node, active: &Active) -> Operation {
             Work::FindMod {
                 found: mods.iter().any(|name| active.has_name(name)),
                 mods,
-                matched: branch(node, "match", active),
-                unmatched: branch(node, "nomatch", active),
+                matched: branch(node, "match", reading),
+                unmatched: branch(node, "nomatch", reading),
             }
         }
         "" => Work::Bare,
-        _ => {
-            let mut aimed = Vec::new();
-            xpaths_inside(node, &mut aimed);
-            Work::Unknown {
-                xpath: xpath.clone(),
-                aimed,
-            }
-        }
-    };
-    Operation {
-        class,
-        success: success_of(node),
-        work,
+        _ => unknown(node),
+    }
+}
+
+pub(super) fn unknown(node: &Node) -> Work {
+    let mut aimed = Vec::new();
+    xpaths_inside(node, &mut aimed);
+    Work::Unknown {
+        xpath: text_of(node, "xpath"),
+        aimed,
     }
 }
 
@@ -331,7 +412,7 @@ fn xpaths_inside(node: &Node, found: &mut Vec<String>) {
     }
 }
 
-fn success_of(node: &Node) -> Success {
+pub(super) fn success_of(node: &Node) -> Success {
     match text_of(node, "success").as_deref() {
         Some("Invert") => Success::Invert,
         Some("Always") => Success::Always,
@@ -362,7 +443,7 @@ fn wanted_with(attribute: impl Fn(&str) -> Option<String>, active: &Active) -> b
     any.is_none_or(|list| active.any_id(&list))
 }
 
-fn frags(nodes: &[Node]) -> Vec<Frag> {
+pub(super) fn frags(nodes: &[Node]) -> Vec<Frag> {
     let mut found = Vec::new();
     for node in nodes {
         match node.get_type() {

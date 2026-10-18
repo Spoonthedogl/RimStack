@@ -6,6 +6,7 @@ use super::*;
 use rimstack_core::mods::patch_order;
 use rimstack_core::rimworld::patching::types::Types;
 use rimstack_core::rimworld::patching::{self, Active, Failure, Loaded as Patching, ModFiles};
+use rimstack_core::rimworld::patchsettings::Settings;
 use rimstack_core::rimworld::paths::Overrides;
 use rimstack_core::rimworld::{code, game::Game, loadfolders};
 use std::path::PathBuf;
@@ -81,7 +82,10 @@ fn patch_simulation_timing_on_this_install() {
 
     let started = Instant::now();
     let files = folders.into_iter().map(|folders| ModFiles { folders });
-    let patching = Patching::read(files.collect(), &active, Types::read(&dlls));
+    let owners = mods.iter().map(|m| installed(m)?.key()).collect();
+    let config = app.paths().config.clone();
+    let settings = Settings::read(config.as_deref()).owned_by(owners);
+    let patching = Patching::read(files.collect(), &active, &settings, Types::read(&dlls));
     eprintln!(
         "active mods: {}, defs: {}",
         mods.len(),
@@ -224,6 +228,7 @@ fn patch_result_key_and_reuse_on_this_install() {
         mods: &parts,
         order: &order,
         rules: &rules,
+        settings: &Settings::files(app.paths().config.as_deref()),
     });
     eprintln!("key {key} alone: {:?}", started.elapsed());
 }

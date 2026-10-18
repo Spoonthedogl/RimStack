@@ -4,6 +4,7 @@ use crate::rimworld::dotnet::FieldType;
 use crate::rimworld::loadfolders;
 use crate::rimworld::patching::types::Types;
 use crate::rimworld::patching::{Active, ModFiles};
+use crate::rimworld::patchsettings::Settings;
 use std::fs;
 use std::path::Path;
 
@@ -44,7 +45,10 @@ fn loaded(mods: &[(String, String)]) -> (tempfile::TempDir, Loaded) {
         let folders = loadfolders::folders(&root, "1.7", &|_| false);
         files.push(ModFiles { folders });
     }
-    (tmp, Loaded::read(files, &Active::default(), types()))
+    (
+        tmp,
+        Loaded::read(files, &Active::default(), &Settings::default(), types()),
+    )
 }
 
 fn xeno(name: &str, gene: &str) -> String {

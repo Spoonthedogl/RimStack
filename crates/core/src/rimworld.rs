@@ -9,6 +9,7 @@ pub mod logs;
 pub mod modsconfig;
 pub mod official;
 pub mod patching;
+pub mod patchsettings;
 pub mod paths;
 pub mod rimsaves;
 pub mod saves;

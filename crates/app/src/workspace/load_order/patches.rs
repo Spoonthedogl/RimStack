@@ -7,6 +7,7 @@ use rimstack_core::kept::patched as kept;
 use rimstack_core::mods::patch_order::{self, Unfixed};
 use rimstack_core::rimworld::patching::types::Types;
 use rimstack_core::rimworld::patching::{Active, Loaded as Patching, ModFiles};
+use rimstack_core::rimworld::patchsettings::Settings;
 use rimstack_core::rimworld::paths::Source;
 use rimstack_core::rimworld::{code, game::Game, loadfolders};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -135,12 +136,15 @@ impl App {
                 assemblies,
             })
             .collect();
+        let config = self.paths().config.clone();
+        let settings_files = Settings::files(config.as_deref());
         let key = key_of(&Made {
             game_version: &library.game_version,
             game_assembly: game.as_deref(),
             mods: &parts,
             order: &order,
             rules: &rules,
+            settings: &settings_files,
         });
         let record = kept::Results::read(&self.patches_file());
         if let Some(result) = record.get(&key) {
@@ -158,7 +162,9 @@ impl App {
         let files = folders.iter().map(|folders| ModFiles {
             folders: folders.clone(),
         });
-        let patching = Patching::read(files.collect(), &active, Types::read(&dlls));
+        let owners = parts.iter().map(|p| p.package.clone()).collect();
+        let settings = Settings::read(config.as_deref()).owned_by(owners);
+        let patching = Patching::read(files.collect(), &active, &settings, Types::read(&dlls));
         if !turn.current() {
             return None;
         }

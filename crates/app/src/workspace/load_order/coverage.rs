@@ -4,6 +4,7 @@
 use super::timing::scratch_app;
 use rimstack_core::rimworld::patching::types::Types;
 use rimstack_core::rimworld::patching::{self, Active, Loaded as Patching, ModFiles};
+use rimstack_core::rimworld::patchsettings::Settings;
 use rimstack_core::rimworld::paths::Source;
 use rimstack_core::rimworld::{code, game::Game, loadfolders};
 use std::collections::{BTreeMap, BTreeSet};
@@ -204,10 +205,14 @@ fn patch_coverage_of_the_workshop() {
             folders: vec![probe.path().to_path_buf()],
         }],
         &active,
+        &Settings::default(),
     );
     assert!(probed.xpaths.iter().all(|x| x.refused) && probed.xpaths.len() == 1);
 
-    let seen = patching::audit(&files(), &active);
+    let config = app.paths().config.clone();
+    let owners = mods.iter().map(|m| m.key()).collect();
+    let settings = Settings::read(config.as_deref()).owned_by(owners);
+    let seen = patching::audit(&files(), &active, &settings);
 
     eprintln!("\n== 1. patch files ==");
     eprintln!("total {}, unreadable {}", seen.files, seen.unreadable.len());
@@ -338,7 +343,7 @@ fn patch_coverage_of_the_workshop() {
         .flat_map(|i| code::assembly_files(&i.path, &library.game_version));
     let dlls: Vec<PathBuf> = game.into_iter().chain(own).collect();
     let started = Instant::now();
-    let loaded = Patching::read(files(), &active, Types::read(&dlls));
+    let loaded = Patching::read(files(), &active, &settings, Types::read(&dlls));
     eprintln!(
         "Loaded::read: {:?}, defs {}, unknown classes (top level and nested in known ones) {}",
         started.elapsed(),
