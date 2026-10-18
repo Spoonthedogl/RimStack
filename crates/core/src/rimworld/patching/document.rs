@@ -297,6 +297,16 @@ impl Document {
             .collect()
     }
 
+    /// The keys of the top-level `kind` defs whose `Name` attribute is exactly `name`.
+    pub(super) fn keys_named(&self, kind: &str, name: &str) -> Vec<DefKey> {
+        let key = DefKey {
+            kind: kind.to_string(),
+            name: name.to_string(),
+        };
+        let found = self.by_attribute.get(&key).into_iter().flatten();
+        found.filter_map(|&at| self.defs[at].key.clone()).collect()
+    }
+
     /// Re-reads the keys of the def holding `node` after an operation changed something inside it.
     pub(super) fn rekey(&mut self, node: &Node) {
         let Some(at) = self.def_index_of(node) else {

@@ -32,7 +32,7 @@ fn evaluate(context: &Context, xpath: &str, from: &Node) -> Result<Vec<Node>, Re
 }
 
 fn through_index(doc: &Document, context: &Context, step: &Indexed) -> Result<Selected, Refused> {
-    let names: Vec<(bool, &str)> = step.names.iter().map(|(a, n)| (*a, n.as_str())).collect();
+    let names: Vec<(bool, &str)> = step.names.iter().map(Test::pair).collect();
     let expression = format!("self::{}[{}]{}", step.kind, step.predicate, step.rest);
     let named = doc.candidates(step.kind, &names);
     let mut nodes = Vec::new();
@@ -46,7 +46,7 @@ struct Indexed<'a> {
     kind: &'a str,
     predicate: &'a str,
     rest: &'a str,
-    names: Vec<(bool, String)>,
+    names: Vec<Test>,
 }
 
 /// What follows the root step. Evaluated from the document node, a leading `*` can only be `<Defs>`.
@@ -85,11 +85,27 @@ fn indexed(xpath: &str) -> Option<Indexed<'_>> {
 pub(super) struct NameTests<'a> {
     pub predicate: &'a str,
     pub rest: &'a str,
-    /// `defName` (false) or `@Name` (true), and the name.
-    pub tests: Vec<(bool, String)>,
+    pub tests: Vec<Test>,
 }
 
-type Tests = Vec<(bool, String)>;
+/// A condition that holds for the defs with one name, as their `defName` or as their `Name` attribute.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Test {
+    DefName(String),
+    Name(String),
+}
+
+impl Test {
+    /// Whether it is the attribute, and the name.
+    fn pair(&self) -> (bool, &str) {
+        match self {
+            Test::DefName(name) => (false, name),
+            Test::Name(name) => (true, name),
+        }
+    }
+}
+
+type Tests = Vec<Test>;
 
 /// From a `[`: the predicate, what follows its `]`, and the names it narrows to, when it does.
 pub(super) fn name_tests(text: &str) -> Option<NameTests<'_>> {
@@ -126,7 +142,7 @@ fn names_of(condition: &str) -> Option<Tests> {
     name_test(condition).map(|test| vec![test])
 }
 
-/// Names joined by `and`. A `@Name` among them is not told apart from a `defName`, so all are kept.
+/// Names joined by `and`. A `@Name` among them is not told apart from a `defName` without the document, so all are kept.
 fn common(mut sides: Vec<Tests>) -> Option<Tests> {
     if sides.len() < 2 {
         return sides.pop();
@@ -136,7 +152,7 @@ fn common(mut sides: Vec<Tests>) -> Option<Tests> {
         .iter()
         .chain([&first])
         .flatten()
-        .any(|(attribute, _)| *attribute)
+        .any(|test| matches!(test, Test::Name(_)))
     {
         for side in sides {
             first.extend(side);
@@ -221,7 +237,7 @@ fn split_on<'a>(predicate: &'a str, word: &str) -> Vec<&'a str> {
     parts
 }
 
-fn name_test(test: &str) -> Option<(bool, String)> {
+fn name_test(test: &str) -> Option<Test> {
     let test = test.trim();
     let (by_attribute, value) = match test.strip_prefix("defName") {
         Some(value) => (false, value),
@@ -230,7 +246,11 @@ fn name_test(test: &str) -> Option<(bool, String)> {
     let value = value.trim_start().strip_prefix('=')?.trim_start();
     let quote = value.chars().next().filter(|c| matches!(c, '"' | '\''))?;
     let name = value.strip_prefix(quote)?.strip_suffix(quote)?;
-    (!name.contains(quote)).then(|| (by_attribute, name.to_string()))
+    let name = name.to_string();
+    (!name.contains(quote)).then(|| match by_attribute {
+        true => Test::Name(name),
+        false => Test::DefName(name),
+    })
 }
 
 #[cfg(test)]
@@ -343,7 +363,7 @@ mod tests {
             ),
         ] {
             let step = indexed(path).expect(path);
-            let names: Vec<&str> = step.names.iter().map(|(_, n)| n.as_str()).collect();
+            let names: Vec<&str> = step.names.iter().map(|test| test.pair().1).collect();
             assert_eq!(names, want, "{path}");
         }
     }

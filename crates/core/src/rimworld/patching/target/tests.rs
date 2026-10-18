@@ -26,7 +26,7 @@ fn covered(document: &Document, target: &Target) -> BTreeSet<DefKey> {
     let tops = document.tops();
     tops.into_iter()
         .filter_map(|top| top.key)
-        .filter(|key| target.covers(key))
+        .filter(|key| target.resolve(document).covers(key))
         .collect()
 }
 
@@ -127,7 +127,7 @@ fn a_name_attribute_test_covers_a_def_that_also_has_a_defname() {
 }
 
 #[test]
-fn an_attribute_name_among_the_names_widens_them() {
+fn an_attribute_name_stands_for_the_kind_until_the_document_resolves_it() {
     for mixed in [
         "Defs/ThingDef[defName=\"A\" or @Name=\"B\"]",
         "Defs/ThingDef[@Name=\"B\" or defName=\"A\"]/comps",
@@ -135,9 +135,12 @@ fn an_attribute_name_among_the_names_widens_them() {
     ] {
         let target = Target::of_xpath(mixed);
         assert_eq!(target.kind(), Some("ThingDef"), "{mixed}");
-        assert_eq!(target.names(), None, "{mixed}");
+        assert!(target.waits_for_the_document(), "{mixed}");
         assert!(target.covers(&key("ThingDef", "C")), "{mixed}");
+        assert!(target.has_names(), "{mixed}");
     }
+    let plain = Target::of_xpath("Defs/ThingDef[defName=\"A\"]");
+    assert!(!plain.waits_for_the_document());
     let other = Target::of_xpath("Defs/ThingDef[defName=\"A\" or li]");
     assert_eq!(other.names(), None);
 }
@@ -181,7 +184,8 @@ fn names_joined_by_and_to_another_condition() {
     let none = Target::of_xpath("Defs/ThingDef[defName=\"A\" and defName=\"B\"]");
     assert_eq!(names(&none), Some(vec![]));
     let mixed = Target::of_xpath("Defs/ThingDef[@Name=\"A\" and defName=\"B\"]");
-    assert_eq!(mixed.names(), None);
+    assert!(mixed.waits_for_the_document());
+    assert!(mixed.covers(&key("ThingDef", "C")));
 }
 
 #[test]
@@ -230,4 +234,34 @@ fn a_union_reaches_what_each_side_does() {
     }
     let wide = Target::of_xpath("Defs/ThingDef[defName=\"A\"] | //li");
     assert!(wide.covers(&key("GeneDef", "G")));
+}
+
+const NAMED: &str = "<Defs>\
+    <ThingDef Name=\"BaseX\" Abstract=\"True\"><comps/></ThingDef>\
+    <ThingDef Name=\"BaseY\"><defName>RealY</defName><comps/></ThingDef>\
+    <ThingDef><defName>Z</defName><comps/></ThingDef>\
+    <ThingDef Name=\"Z2\"><defName>Z</defName><comps/></ThingDef>\
+    <PawnKindDef Name=\"BaseX\"><comps/></PawnKindDef>\
+    <PawnKindDef Name=\"BaseP\"><defName>RealP</defName><comps/></PawnKindDef>\
+    </Defs>";
+
+#[test]
+fn a_name_attribute_reaches_the_defs_that_carry_it() {
+    let (_tmp, document) = document_of(NAMED);
+    for xpath in [
+        "Defs/ThingDef[@Name=\"BaseY\"]",
+        "Defs/ThingDef[@Name=\"BaseX\" or @Name='BaseY']",
+        "Defs/ThingDef[@Name=\"BaseY\" or defName=\"Z\"]",
+        "Defs/ThingDef[@Name = \"BaseY\" and defName=\"RealY\"]",
+        "Defs/ThingDef[@Name=\"Nothing\"]",
+        "Defs/ThingDef[@Name=\"Z2\"]",
+        "(Defs/ThingDef[@Name=\"BaseY\"] | Defs/PawnKindDef[@Name=\"BaseX\"])",
+        "Defs/PawnKindDef[(@Name=\"BaseP\")]",
+    ] {
+        matches_libxml(&document, xpath, "/comps");
+    }
+    let both = "Defs/ThingDef[@Name=\"BaseX\" and defName=\"Z\"]";
+    assert!(libxml_selects(&document, both).is_empty());
+    let target = Target::of_xpath(both);
+    assert!(covered(&document, &target).contains(&key("ThingDef", "Z")));
 }

@@ -1,18 +1,27 @@
 use super::DefKey;
-use super::xpath;
+use super::document::Document;
+use super::xpath::{self, Test};
 use std::collections::BTreeSet;
 
 /// What an XPath is known to reach among the top-level defs: the union of its sides.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Target {
     sides: Vec<Side>,
 }
 
 /// One side of a union; a `None` is any.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Side {
     kind: Option<String>,
-    names: Option<BTreeSet<String>>,
+    names: Option<Names>,
+}
+
+/// What a side is narrowed to. A def with a `defName` is keyed by it, which its `Name` does not tell, so
+/// the `Name` tests wait for `Target::resolve`; until then they stand for every def of the kind.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+struct Names {
+    def_names: BTreeSet<String>,
+    attributes: BTreeSet<String>,
 }
 
 impl Target {
@@ -53,8 +62,28 @@ impl Target {
     /// The names of a target that is one side narrowed to them.
     pub fn names(&self) -> Option<&BTreeSet<String>> {
         match self.sides.as_slice() {
-            [side] => side.names.as_ref(),
+            [side] => side.names.as_ref().map(|names| &names.def_names),
             _ => None,
+        }
+    }
+
+    /// Whether `resolve` would narrow it.
+    pub fn waits_for_the_document(&self) -> bool {
+        self.sides.iter().any(|side| {
+            side.names
+                .as_ref()
+                .is_some_and(|names| !names.attributes.is_empty())
+        })
+    }
+
+    /// The defs of `document` that its `Name` tests name, put among the names it is narrowed to.
+    pub(super) fn resolve(&self, document: &Document) -> Target {
+        Target {
+            sides: self
+                .sides
+                .iter()
+                .map(|side| side.resolve(document))
+                .collect(),
         }
     }
 
@@ -98,18 +127,43 @@ impl Side {
         }
     }
 
+    fn resolve(&self, document: &Document) -> Side {
+        let (Some(kind), Some(names)) = (&self.kind, &self.names) else {
+            return self.clone();
+        };
+        let mut def_names = names.def_names.clone();
+        for attribute in &names.attributes {
+            def_names.extend(
+                document
+                    .keys_named(kind, attribute)
+                    .into_iter()
+                    .map(|key| key.name),
+            );
+        }
+        Side {
+            kind: self.kind.clone(),
+            names: Some(Names {
+                def_names,
+                attributes: BTreeSet::new(),
+            }),
+        }
+    }
+
     fn covers(&self, def: &DefKey) -> bool {
         self.kind.as_ref().is_none_or(|kind| *kind == def.kind)
-            && self
-                .names
-                .as_ref()
-                .is_none_or(|names| names.contains(&def.name))
+            && self.names.as_ref().is_none_or(|names| {
+                !names.attributes.is_empty() || names.def_names.contains(&def.name)
+            })
     }
 
     fn overlaps(&self, other: &Side) -> bool {
         let kinds = self.kind.is_none() || other.kind.is_none() || self.kind == other.kind;
         let names = match (&self.names, &other.names) {
-            (Some(a), Some(b)) => !a.is_disjoint(b),
+            (Some(a), Some(b)) => {
+                !a.attributes.is_empty()
+                    || !b.attributes.is_empty()
+                    || !a.def_names.is_disjoint(&b.def_names)
+            }
             _ => true,
         };
         kinds && names
@@ -172,13 +226,15 @@ fn leaves_the_def(path: &str) -> bool {
     AXES.iter().any(|axis| path.contains(axis))
 }
 
-/// A `@Name` test widens to every name: a def with a `defName` is keyed by that, which its `Name` does not tell.
-fn name_predicate(rest: &str) -> Option<BTreeSet<String>> {
-    let tests = xpath::name_tests(rest)?.tests;
-    if tests.iter().any(|(by_attribute, _)| *by_attribute) {
-        return None;
+fn name_predicate(rest: &str) -> Option<Names> {
+    let mut names = Names::default();
+    for test in xpath::name_tests(rest)?.tests {
+        match test {
+            Test::DefName(name) => names.def_names.insert(name),
+            Test::Name(name) => names.attributes.insert(name),
+        };
     }
-    Some(tests.into_iter().map(|(_, name)| name).collect())
+    Some(names)
 }
 
 #[cfg(test)]

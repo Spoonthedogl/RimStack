@@ -240,7 +240,7 @@ fn defs_of(failure: &Failure, run: &Run) -> BTreeSet<DefKey> {
             .traces
             .iter()
             .flat_map(|t| &t.wrote)
-            .filter(|def| target.covers(def))
+            .filter(|def| run.reach(target).covers(def))
             .cloned()
             .collect(),
     }

@@ -1,6 +1,6 @@
 use document::Document;
 use operations::apply;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use types::Types;
 
@@ -37,15 +37,28 @@ pub struct Run {
     pub failures: Vec<Failure>,
     pub traces: Vec<Trace>,
     pub unknown: Vec<Target>,
+    /// Each target of `unknown` and of the failures that waits for the document, as this run's defs
+    /// resolve it.
+    resolved: HashMap<Target, Target>,
 }
 
 impl Run {
+    /// What `target` reaches among this run's defs.
+    pub fn reach<'a>(&'a self, target: &'a Target) -> &'a Target {
+        self.resolved.get(target).unwrap_or(target)
+    }
+
     pub fn is_unknown(&self, def: &DefKey) -> bool {
-        self.unknown.iter().any(|target| target.covers(def))
+        self.unknown
+            .iter()
+            .any(|target| self.reach(target).covers(def))
     }
 
     pub fn is_unknown_target(&self, target: &Target) -> bool {
-        self.unknown.iter().any(|unknown| unknown.overlaps(target))
+        let target = self.reach(target);
+        self.unknown
+            .iter()
+            .any(|unknown| self.reach(unknown).overlaps(target))
     }
 }
 
@@ -125,10 +138,24 @@ impl Loaded {
             &mut run.traces,
             &mut run.failures,
         );
+        run.resolved = resolutions(&document, &run);
         run.failures
             .extend(checks::find(&document, &rank, &self.active, &self.types));
         run
     }
+}
+
+fn resolutions(document: &Document, run: &Run) -> HashMap<Target, Target> {
+    let failed = run.failures.iter().filter_map(|failure| match failure {
+        Failure::Failed { target, .. } => Some(target),
+        _ => None,
+    });
+    run.unknown
+        .iter()
+        .chain(failed)
+        .filter(|target| target.waits_for_the_document())
+        .map(|target| (target.clone(), target.resolve(document)))
+        .collect()
 }
 
 /// One per place in the load order: the folders `loadfolders::folders` gives, lowest priority first.
@@ -529,5 +556,17 @@ mod tests {
         let run = loaded(&[(SKELETAL, op)]).run(&[0], None);
         assert!(run.is_unknown(&key("XenotypeDef", "VU_ReturnedSkeletal")));
         assert!(!run.is_unknown(&key("ThingDef", "A")));
+    }
+
+    #[test]
+    fn an_unknown_operation_on_a_name_attribute_reaches_the_defs_that_carry_it() {
+        let defs = "<ThingDef Name=\"Base\"><defName>Keyed</defName></ThingDef>\
+                    <ThingDef><defName>Other</defName></ThingDef>\
+                    <ThingDef><defName>Based</defName></ThingDef>";
+        let op = "<Operation Class=\"Mod.Custom\"><xpath>Defs/ThingDef[@Name=\"Base\"]</xpath></Operation>";
+        let run = loaded(&[(defs, op)]).run(&[0], None);
+        assert!(run.is_unknown(&key("ThingDef", "Keyed")));
+        assert!(!run.is_unknown(&key("ThingDef", "Other")));
+        assert!(!run.is_unknown(&key("ThingDef", "Based")));
     }
 }
