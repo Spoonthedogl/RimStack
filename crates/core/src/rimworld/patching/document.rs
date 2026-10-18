@@ -31,6 +31,8 @@ pub(super) struct Document {
     by_node: HashMap<usize, usize>,
     /// Whatever the kind: a `ParentName` does not say it. Built when first asked for, dropped by `reindex`.
     by_name: OnceLock<HashMap<String, Vec<usize>>>,
+    /// The defs by kind and `ParentName`, built and dropped like `by_name`.
+    by_parent: OnceLock<HashMap<DefKey, Vec<usize>>>,
 }
 
 pub(super) struct Top {
@@ -140,6 +142,7 @@ impl Document {
             by_attribute: HashMap::new(),
             by_node: HashMap::new(),
             by_name: OnceLock::new(),
+            by_parent: OnceLock::new(),
         };
         for (node, def) in nodes.into_iter().zip(&self.defs) {
             copy.defs.push(Def {
@@ -243,6 +246,7 @@ impl Document {
             by_attribute: HashMap::new(),
             by_node: HashMap::new(),
             by_name: OnceLock::new(),
+            by_parent: OnceLock::new(),
         };
         for (node, part) in nodes.into_iter().zip(parts) {
             document.defs.push(Def::new(node, part.origin));
@@ -256,6 +260,7 @@ impl Document {
         self.by_attribute.clear();
         self.by_node.clear();
         self.by_name = OnceLock::new();
+        self.by_parent = OnceLock::new();
         for (at, def) in self.defs.iter().enumerate() {
             if let Some(key) = &def.key {
                 self.index.entry(key.clone()).or_default().push(at);
@@ -304,6 +309,26 @@ impl Document {
             name: name.to_string(),
         };
         let found = self.by_attribute.get(&key).into_iter().flatten();
+        found.filter_map(|&at| self.defs[at].key.clone()).collect()
+    }
+
+    /// The keys of the top-level `kind` defs whose `ParentName` attribute is exactly `parent`.
+    pub(super) fn keys_derived(&self, kind: &str, parent: &str) -> Vec<DefKey> {
+        let by_parent = self.by_parent.get_or_init(|| {
+            let mut found: HashMap<DefKey, Vec<usize>> = HashMap::new();
+            for (at, def) in self.defs.iter().enumerate() {
+                if let Some(name) = def.node.get_attribute("ParentName") {
+                    let kind = def.node.get_name();
+                    found.entry(DefKey { kind, name }).or_default().push(at);
+                }
+            }
+            found
+        });
+        let key = DefKey {
+            kind: kind.to_string(),
+            name: parent.to_string(),
+        };
+        let found = by_parent.get(&key).into_iter().flatten();
         found.filter_map(|&at| self.defs[at].key.clone()).collect()
     }
 

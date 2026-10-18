@@ -265,3 +265,38 @@ fn a_name_attribute_reaches_the_defs_that_carry_it() {
     let target = Target::of_xpath(both);
     assert!(covered(&document, &target).contains(&key("ThingDef", "Z")));
 }
+
+const INHERITING: &str = "<Defs>\
+    <ThingDef Name=\"Base\" Abstract=\"True\"><comps/></ThingDef>\
+    <ThingDef ParentName=\"Base\"><defName>C1</defName><comps/></ThingDef>\
+    <ThingDef ParentName=\"Base\"><defName>C2</defName><comps/></ThingDef>\
+    <ThingDef ParentName=\"Other\"><defName>C3</defName><comps/></ThingDef>\
+    <ThingDef><defName>D</defName><comps/></ThingDef>\
+    <ThingDef ParentName=\"Base\" Name=\"Mid\"><comps/></ThingDef>\
+    <PawnKindDef ParentName=\"Base\"><defName>P1</defName><comps/></PawnKindDef>\
+    </Defs>";
+
+#[test]
+fn a_parent_name_reaches_the_defs_that_inherit_from_it() {
+    let (_tmp, document) = document_of(INHERITING);
+    for xpath in [
+        "Defs/ThingDef[@ParentName=\"Base\"]",
+        "Defs/ThingDef[@ParentName = 'Other']",
+        "Defs/ThingDef[@ParentName=\"Base\" or @ParentName=\"Other\"]",
+        "Defs/ThingDef[@ParentName=\"Other\" or defName=\"D\"]",
+        "Defs/ThingDef[@ParentName=\"Base\" or @Name=\"Mid\"]",
+        "Defs/ThingDef[@ParentName=\"Nothing\"]",
+        "Defs/PawnKindDef[@ParentName=\"Base\"]",
+        "(Defs/ThingDef[@ParentName=\"Other\"] | Defs/PawnKindDef[@ParentName=\"Base\"])",
+    ] {
+        matches_libxml(&document, xpath, "/comps");
+    }
+    let both = "Defs/ThingDef[@ParentName=\"Base\" and defName=\"D\"]";
+    assert!(libxml_selects(&document, both).is_empty());
+    let target = Target::of_xpath(both);
+    assert!(covered(&document, &target).contains(&key("ThingDef", "D")));
+    let deeper = "Defs/ThingDef[defName=\"C1\"][@ParentName=\"Other\"]";
+    assert!(libxml_selects(&document, deeper).is_empty());
+    let target = Target::of_xpath(deeper);
+    assert!(covered(&document, &target).contains(&key("ThingDef", "C1")));
+}

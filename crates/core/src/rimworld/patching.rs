@@ -569,4 +569,16 @@ mod tests {
         assert!(!run.is_unknown(&key("ThingDef", "Other")));
         assert!(!run.is_unknown(&key("ThingDef", "Based")));
     }
+
+    #[test]
+    fn an_unknown_operation_on_a_parent_name_reaches_the_defs_that_inherit_from_it() {
+        let defs = "<ThingDef Name=\"Base\"><defName>Keyed</defName></ThingDef>\
+                    <ThingDef ParentName=\"Base\"><defName>Child</defName></ThingDef>\
+                    <PawnKindDef ParentName=\"Base\"><defName>Kind</defName></PawnKindDef>";
+        let op = "<Operation Class=\"Mod.Custom\"><xpath>Defs/ThingDef[@ParentName=\"Base\"]</xpath></Operation>";
+        let run = loaded(&[(defs, op)]).run(&[0], None);
+        assert!(run.is_unknown(&key("ThingDef", "Child")));
+        assert!(!run.is_unknown(&key("ThingDef", "Keyed")));
+        assert!(!run.is_unknown(&key("PawnKindDef", "Kind")));
+    }
 }

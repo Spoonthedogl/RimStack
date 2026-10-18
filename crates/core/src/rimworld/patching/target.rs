@@ -16,12 +16,19 @@ struct Side {
     names: Option<Names>,
 }
 
-/// What a side is narrowed to. A def with a `defName` is keyed by it, which its `Name` does not tell, so
-/// the `Name` tests wait for `Target::resolve`; until then they stand for every def of the kind.
+/// What a side is narrowed to. A def with a `defName` is keyed by it, which its `Name` and its `ParentName`
+/// do not tell, so these wait for `Target::resolve`; until then they stand for every def of the kind.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 struct Names {
     def_names: BTreeSet<String>,
     attributes: BTreeSet<String>,
+    parents: BTreeSet<String>,
+}
+
+impl Names {
+    fn waits(&self) -> bool {
+        !self.attributes.is_empty() || !self.parents.is_empty()
+    }
 }
 
 impl Target {
@@ -69,14 +76,12 @@ impl Target {
 
     /// Whether `resolve` would narrow it.
     pub fn waits_for_the_document(&self) -> bool {
-        self.sides.iter().any(|side| {
-            side.names
-                .as_ref()
-                .is_some_and(|names| !names.attributes.is_empty())
-        })
+        self.sides
+            .iter()
+            .any(|side| side.names.as_ref().is_some_and(Names::waits))
     }
 
-    /// The defs of `document` that its `Name` tests name, put among the names it is narrowed to.
+    /// The defs of `document` that its `Name` and `ParentName` tests name, put among the names it is narrowed to.
     pub(super) fn resolve(&self, document: &Document) -> Target {
         Target {
             sides: self
@@ -140,30 +145,31 @@ impl Side {
                     .map(|key| key.name),
             );
         }
+        for parent in &names.parents {
+            let derived = document.keys_derived(kind, parent);
+            def_names.extend(derived.into_iter().map(|key| key.name));
+        }
         Side {
             kind: self.kind.clone(),
             names: Some(Names {
                 def_names,
-                attributes: BTreeSet::new(),
+                ..Names::default()
             }),
         }
     }
 
     fn covers(&self, def: &DefKey) -> bool {
         self.kind.as_ref().is_none_or(|kind| *kind == def.kind)
-            && self.names.as_ref().is_none_or(|names| {
-                !names.attributes.is_empty() || names.def_names.contains(&def.name)
-            })
+            && self
+                .names
+                .as_ref()
+                .is_none_or(|names| names.waits() || names.def_names.contains(&def.name))
     }
 
     fn overlaps(&self, other: &Side) -> bool {
         let kinds = self.kind.is_none() || other.kind.is_none() || self.kind == other.kind;
         let names = match (&self.names, &other.names) {
-            (Some(a), Some(b)) => {
-                !a.attributes.is_empty()
-                    || !b.attributes.is_empty()
-                    || !a.def_names.is_disjoint(&b.def_names)
-            }
+            (Some(a), Some(b)) => a.waits() || b.waits() || !a.def_names.is_disjoint(&b.def_names),
             _ => true,
         };
         kinds && names
@@ -232,6 +238,7 @@ fn name_predicate(rest: &str) -> Option<Names> {
         match test {
             Test::DefName(name) => names.def_names.insert(name),
             Test::Name(name) => names.attributes.insert(name),
+            Test::ParentName(name) => names.parents.insert(name),
         };
     }
     Some(names)
