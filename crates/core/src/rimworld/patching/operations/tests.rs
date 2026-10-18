@@ -705,4 +705,5 @@ fn a_def_named_by_a_path_that_matches_nothing_is_read() {
 }
 
 mod frameworks;
+mod modsettings;
 mod xmlextensions;

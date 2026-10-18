@@ -10,6 +10,10 @@ pub(super) fn xe(class: &str) -> String {
     format!("XmlExtensions.{class}")
 }
 
+pub(super) fn msf(class: &str) -> String {
+    format!("ModSettingsFramework.{class}")
+}
+
 pub(super) fn xpath(of: &str) -> String {
     format!("<xpath>{of}</xpath>")
 }
@@ -40,6 +44,22 @@ pub(super) fn xe_file(entries: &[(&str, &str)]) -> String {
     format!(
         "<SettingsBlock><ModSettings Class=\"XmlExtensions.XmlModBaseSettings\"><dataDict><keys>{keys}</keys>\
          <values>{values}</values></dataDict></ModSettings></SettingsBlock>"
+    )
+}
+
+pub(super) fn msf_file(states: &[(&str, &str)], values: &[(&str, &str)]) -> String {
+    let list = |pairs: &[(&str, &str)]| {
+        let keys: String = pairs.iter().map(|(k, _)| format!("<li>{k}</li>")).collect();
+        let vals: String = pairs.iter().map(|(_, v)| format!("<li>{v}</li>")).collect();
+        format!("<keys>{keys}</keys><values>{vals}</values>")
+    };
+    format!(
+        "<SettingsBlock><ModSettings><modSettingsPerModId><keys><li>{OWNER}</li></keys><values><li>\
+         <packageID>{OWNER}</packageID><patchOperationStates>{}</patchOperationStates>\
+         <patchOperationValues>{}</patchOperationValues></li></values></modSettingsPerModId>\
+         </ModSettings></SettingsBlock>",
+        list(states),
+        list(values)
     )
 }
 
@@ -78,6 +98,14 @@ pub(super) fn play(
 
 pub(super) fn xe_only(ops: &[String], xml_extensions: Option<&str>) -> Outcome {
     play(DEFS, ops, xml_extensions, None)
+}
+
+pub(super) fn msf_only(ops: &[String], framework: Option<&str>) -> Outcome {
+    play(DEFS, ops, None, framework)
+}
+
+pub(super) fn operations(list: &[String]) -> String {
+    format!("<operations>{}</operations>", list.concat())
 }
 
 pub(super) fn tag(name: &str) -> String {

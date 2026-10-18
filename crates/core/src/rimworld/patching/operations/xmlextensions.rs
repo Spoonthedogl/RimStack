@@ -137,7 +137,10 @@ pub(super) fn read(class: &str, node: &Node, reading: &Reading) -> Option<Work> 
 }
 
 pub(super) fn nested(operations: Vec<Operation>) -> Work {
-    Work::Nested { operations }
+    Work::Nested {
+        operations,
+        listed: None,
+    }
 }
 
 fn flag(node: &Node, name: &str) -> bool {

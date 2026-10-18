@@ -3,11 +3,12 @@ use super::xpath::{self, Refused};
 use super::{DefKey, Target};
 use libxml::tree::{Node, NodeType};
 use libxml::xpath::Context;
-use read::{Change, Frag, Operation, Success, Work};
+use read::{Change, Frag, Listed, Operation, Success, Work};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 mod audit;
+mod modsettings;
 mod read;
 mod safe;
 mod xmlextensions;
@@ -128,10 +129,12 @@ impl Operation {
             | Work::Conditional { xpath, .. }
             | Work::SafeRemove { xpath }
             | Work::Branch { xpath, .. }
+            | Work::Slider { xpath, .. }
             | Work::Unknown { xpath, .. } => xpath.as_deref(),
             Work::Safe(safe) => safe.xpath.as_deref(),
             Work::Sequence(_)
             | Work::Nested { .. }
+            | Work::Each(_)
             | Work::Fails
             | Work::FindMod { .. }
             | Work::Bare => None,
@@ -148,8 +151,19 @@ impl Operation {
             format!("Verse.{}", self.class)
         };
         let path = self.xpath().unwrap_or_default();
-        let by_framework = self.class.starts_with("XmlExtensions.");
+        let by_framework = ["XmlExtensions.", "ModSettingsFramework."]
+            .iter()
+            .any(|namespace| self.class.starts_with(namespace));
         match &self.work {
+            Work::Nested {
+                operations,
+                listed: Some(Listed { count, id }),
+            } => {
+                let last =
+                    last_failed.map_or(String::new(), |l| format!(", lastFailedOperation={l}"));
+                let _ = operations;
+                format!("{class}(count={count}{last}) - {id}")
+            }
             _ if by_framework => class,
             Work::Sequence(operations) => {
                 let last =
@@ -295,8 +309,14 @@ impl Run<'_> {
                 value,
                 change,
             } => self.attribute(xpath, attribute.as_deref(), value, change),
-            Work::Sequence(operations) | Work::Nested { operations } => {
+            Work::Sequence(operations) | Work::Nested { operations, .. } => {
                 self.sequence(operations, blame)
+            }
+            Work::Each(operations) => {
+                for operation in operations {
+                    self.apply(operation, &mut Blame::default());
+                }
+                Verdict::Yes
             }
             Work::Fails => Verdict::No,
             Work::Branch { xpath, yes, no } => {
@@ -307,6 +327,11 @@ impl Run<'_> {
                 self.sequence(if found { yes } else { no }, blame)
             }
             Work::Safe(safe) => self.safe(safe),
+            Work::Slider {
+                xpath,
+                text,
+                strict,
+            } => self.slider(xpath, text, *strict),
             Work::Conditional {
                 xpath,
                 matched,
@@ -405,6 +430,24 @@ impl Run<'_> {
                 node.unlink_node();
             }
         })
+    }
+
+    fn slider(&mut self, xpath: &Option<String>, text: &str, strict: bool) -> Verdict {
+        let nodes = match self.nodes(xpath) {
+            Ok(nodes) => nodes,
+            Err(verdict) => return verdict,
+        };
+        let Some(mut node) = nodes.into_iter().next() else {
+            return Verdict::from(!strict);
+        };
+        if let Some(key) = self.doc.def_of(&node) {
+            self.wrote.insert(key);
+        }
+        if node.get_type() == Some(NodeType::ElementNode) {
+            self.mark(&node);
+            let _ = node.set_content(text);
+        }
+        Verdict::Yes
     }
 
     /// Runs `change` on each match (on the first only when `single`); true when there was one. A missing

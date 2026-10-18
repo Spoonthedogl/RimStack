@@ -39,7 +39,7 @@ pub fn audit(mods: &[ModFiles], active: &Active, settings: &Settings) -> Audit {
         _ => false,
     };
     for (mod_at, files) in mods.iter().enumerate() {
-        let reading = Reading::new(active, settings, &defs);
+        let reading = Reading::new(active, settings, &defs, settings.owner(mod_at));
         for path in files_in_game_order(files, "Patches") {
             found.files += 1;
             let Some(text) = std::fs::read(&path)
@@ -118,6 +118,7 @@ fn walk(
         | Work::Attribute { xpath, .. }
         | Work::Test { xpath } => own(xpath, xpaths),
         Work::Sequence(inner)
+        | Work::Each(inner)
         | Work::Nested {
             operations: inner, ..
         } => inner
@@ -129,7 +130,7 @@ fn walk(
                 .chain(no)
                 .for_each(|o| walk(o, mod_at, operations, xpaths));
         }
-        Work::SafeRemove { xpath } => own(xpath, xpaths),
+        Work::SafeRemove { xpath } | Work::Slider { xpath, .. } => own(xpath, xpaths),
         Work::Safe(safe) => own(&safe.xpath, xpaths),
         Work::Fails => {}
         Work::Conditional {

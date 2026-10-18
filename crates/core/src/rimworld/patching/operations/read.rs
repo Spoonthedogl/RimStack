@@ -1,7 +1,7 @@
 use super::super::ModFiles;
 use super::super::document::files_in_game_order;
 use super::safe::Safe;
-use super::xmlextensions;
+use super::{modsettings, xmlextensions};
 use crate::note;
 use crate::rimworld::patchsettings::Settings;
 use libxml::parser::{Parser, ParserOptions};
@@ -77,6 +77,12 @@ pub(super) enum Frag {
     Text(String),
 }
 
+/// A `ModOption` as the game prints it: `(count=N...) - id`.
+pub(super) struct Listed {
+    pub count: usize,
+    pub id: String,
+}
+
 pub(super) enum Change {
     Add,
     Set,
@@ -138,7 +144,10 @@ pub(super) enum Work {
     /// A framework's operation as the settings made it: what runs in order, stopping at the first failure.
     Nested {
         operations: Vec<Operation>,
+        listed: Option<Listed>,
     },
+    /// Every one runs, whatever it gives; it succeeds.
+    Each(Vec<Operation>),
     /// Fails without looking at the document, as a framework's operation that throws or has what it needs missing.
     Fails,
     /// Removes every match and succeeds when there is none.
@@ -151,6 +160,12 @@ pub(super) enum Work {
         no: Vec<Operation>,
     },
     Safe(Safe),
+    /// The first match's text is set; a `strict` one fails with no match.
+    Slider {
+        xpath: Option<String>,
+        text: String,
+        strict: bool,
+    },
     /// `aimed` is the text of every XPath element inside it, at any depth.
     Unknown {
         xpath: Option<String>,
@@ -165,7 +180,9 @@ impl Patches {
             match &operation.work {
                 Work::Unknown { .. } => *found.entry(operation.class.clone()).or_default() += 1,
                 Work::Sequence(operations) => operations.iter().for_each(|o| count(o, found)),
-                Work::Nested { operations } => operations.iter().for_each(|o| count(o, found)),
+                Work::Nested { operations, .. } | Work::Each(operations) => {
+                    operations.iter().for_each(|o| count(o, found))
+                }
                 Work::Branch { yes, no, .. } => yes.iter().chain(no).for_each(|o| count(o, found)),
                 Work::Conditional {
                     matched, unmatched, ..
@@ -190,8 +207,9 @@ impl Patches {
         let defs = xmlextensions::PatchDefs::new(mods);
         let mods = mods
             .par_iter()
-            .map(|files| {
-                let reading = Reading::new(active, settings, &defs);
+            .enumerate()
+            .map(|(place, files)| {
+                let reading = Reading::new(active, settings, &defs, settings.owner(place));
                 files_in_game_order(files, "Patches")
                     .into_par_iter()
                     .filter_map(|path| patch_file(path, &reading))
@@ -208,6 +226,8 @@ pub(super) struct Reading<'a> {
     pub active: &'a Active,
     pub settings: &'a Settings,
     pub defs: &'a xmlextensions::PatchDefs<'a>,
+    /// The lowercase package id of the mod whose patch file it is.
+    pub owner: Option<&'a str>,
     depth: usize,
 }
 
@@ -216,11 +236,13 @@ impl<'a> Reading<'a> {
         active: &'a Active,
         settings: &'a Settings,
         defs: &'a xmlextensions::PatchDefs<'a>,
+        owner: Option<&'a str>,
     ) -> Self {
         Reading {
             active,
             settings,
             defs,
+            owner,
             depth: 0,
         }
     }
@@ -296,6 +318,7 @@ fn branch(node: &Node, name: &str, reading: &Reading) -> Option<Box<Operation>> 
 pub(super) fn operation(node: &Node, reading: &Reading) -> Operation {
     let class = node.get_attribute("Class").unwrap_or_default();
     let work = xmlextensions::read(&class, node, reading)
+        .or_else(|| modsettings::read(&class, node, reading))
         .unwrap_or_else(|| vanilla(&class, node, reading));
     Operation {
         class,
