@@ -442,7 +442,9 @@ fn downloads(app: &App, shapes: &mut Shapes) {
     shapes.add("downloads.queue", &queue);
     shapes.add(
         "downloads.queue",
-        &app.look_up("nothing to download here").unwrap(),
+        // A link to neither: plain words would be searched for on the Workshop.
+        &app.look_up("https://example.com/nothing-to-download")
+            .unwrap(),
     );
     let refused: Result<(), _> = Err(rimstack_core::base::error::Error::refused(
         rimstack_core::said!("refused"),
