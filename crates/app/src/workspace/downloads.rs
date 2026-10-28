@@ -253,7 +253,8 @@ impl App {
         let loaded = self.library();
         let (library, _) = loaded.as_ref().as_ref().map_err(Clone::clone)?;
         let mods = library.workshop_mods();
-        let items = downloads::asked(&ids, &answered, &|id| mods.contains_key(id));
+        let game = &library.game_version;
+        let items = downloads::asked(&ids, &answered, &|id| mods.contains_key(id), game);
         // Search results are picked one by one, not all at once.
         let wanted = items
             .iter()

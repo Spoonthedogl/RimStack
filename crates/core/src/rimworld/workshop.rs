@@ -78,6 +78,9 @@ pub struct Details {
     pub updated: u64,
     /// 0 when Steam does not say.
     pub size: u64,
+    /// The game versions it is tagged for, such as 1.6, newest first.
+    pub versions: Vec<String>,
+    pub subscribers: u64,
 }
 
 pub fn parse_details(json: &str) -> Result<Vec<Details>, Error> {
@@ -97,9 +100,36 @@ pub fn parse_details(json: &str) -> Result<Vec<Details>, Error> {
                 .get("file_size")
                 .and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()))
                 .unwrap_or(0),
+            versions: versions_in(file),
+            subscribers: file
+                .get("subscriptions")
+                .and_then(|v| v.as_u64().or_else(|| v.as_str()?.parse().ok()))
+                .unwrap_or(0),
         })
     };
     Ok(files.iter().filter_map(details).collect())
+}
+
+/// Tags such as `1.6` among others such as `Mod`.
+fn versions_in(file: &Value) -> Vec<String> {
+    let tags = file.get("tags").and_then(Value::as_array);
+    let tag = |t: &Value| t.get("tag")?.as_str().map(str::to_string);
+    let mut versions: Vec<String> = tags
+        .into_iter()
+        .flatten()
+        .filter_map(tag)
+        .filter(|t| crate::rimworld::modsconfig::short_version(t).as_deref() == Some(t))
+        .collect();
+    // As numbers: 1.10 is newer than 1.9.
+    let number = |v: &String| {
+        let (major, minor) = v.split_once('.').unwrap_or_default();
+        (
+            major.parse::<u32>().unwrap_or(0),
+            minor.parse::<u32>().unwrap_or(0),
+        )
+    };
+    versions.sort_by_key(|v| std::cmp::Reverse(number(v)));
+    versions
 }
 
 /// Blocks on the network. Steam is slow per item, so chunks of 100 go out in parallel.
@@ -271,7 +301,8 @@ mod tests {
     #[test]
     fn details_skip_items_steam_does_not_know() {
         let json = r#"{"response":{"result":1,"resultcount":2,"publishedfiledetails":[
-            {"publishedfileid":"2009463077","result":1,"title":"Harmony","time_updated":1756914561,"file_size":"5729526"},
+            {"publishedfileid":"2009463077","result":1,"title":"Harmony","time_updated":1756914561,"file_size":"5729526",
+             "subscriptions":3346929,"tags":[{"tag":"Mod"},{"tag":"1.5"},{"tag":"1.10"},{"tag":"1.6"}]},
             {"publishedfileid":"1","result":9}]}}"#;
         let found = parse_details(json).unwrap();
         assert_eq!(
@@ -280,7 +311,9 @@ mod tests {
                 id: "2009463077".into(),
                 title: "Harmony".into(),
                 updated: 1756914561,
-                size: 5729526
+                size: 5729526,
+                versions: vec!["1.10".into(), "1.6".into(), "1.5".into()],
+                subscribers: 3346929
             }]
         );
         assert!(parse_details("<html>").is_err());

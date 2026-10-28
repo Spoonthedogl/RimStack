@@ -18,8 +18,11 @@ downloads.queue: object
       id: text
       installed: bool
       megabytes: nothing or number
+      misfit: nothing or text
+      subscribers: nothing or number
       title: nothing or text
       updated: nothing or number
+      versions: text
   note: absent or nothing or text
   problem: absent or text
   repositories: absent or list

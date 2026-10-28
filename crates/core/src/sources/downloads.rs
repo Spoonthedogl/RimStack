@@ -1,5 +1,6 @@
 //! Active mods come first in each.
 
+use crate::base::sentence::Sentence;
 use crate::mods::library::{Library, ModId};
 use crate::sources::replacements::Replacement;
 use serde::Serialize;
@@ -193,22 +194,46 @@ pub struct Asked {
     pub updated: Option<u64>,
     pub megabytes: Option<f64>,
     pub installed: bool,
+    /// The newest three game versions it is tagged for; empty when it is tagged for none.
+    pub versions: String,
+    pub subscribers: Option<u64>,
+    /// When it is tagged for game versions, none of them `game`.
+    pub misfit: Option<Sentence>,
 }
 
-/// One line per id, in the order asked, even where Steam said nothing.
+/// One line per id, in the order asked, even where Steam said nothing. `game` is the installed
+/// game's version, such as 1.6, or empty when it is not known.
 pub fn asked(
     ids: &[String],
     answered: &[crate::rimworld::workshop::Details],
     installed: &dyn Fn(&str) -> bool,
+    game: &str,
 ) -> Vec<Asked> {
     let one = |id: &String| {
         let said = answered.iter().find(|details| &details.id == id);
+        let versions = said.map_or(&[][..], |details| details.versions.as_slice());
+        let misfit =
+            !game.is_empty() && !versions.is_empty() && !versions.iter().any(|v| v == game);
         Asked {
             id: id.clone(),
             title: said.map(|details| details.title.clone()),
             updated: said.map(|details| details.updated),
             megabytes: said.map(|details| details.size as f64 / 1_048_576.0),
             installed: installed(id),
+            versions: versions
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            subscribers: said.map(|details| details.subscribers),
+            misfit: misfit.then(|| {
+                crate::say!(
+                    "Made for RimWorld {}, not {}. Many such mods still work.",
+                    versions.join(", "),
+                    game
+                )
+            }),
         }
     };
     ids.iter().map(one).collect()
@@ -282,9 +307,16 @@ mod tests {
             title: "Zebra".to_string(),
             updated: 9,
             size: 3_145_728,
+            versions: vec!["1.5".into(), "1.4".into(), "1.3".into(), "1.2".into()],
+            subscribers: 12,
         };
         let ids = ["777".to_string(), "200".to_string()];
-        let lines = asked(&ids, &[details], &|id| id == "200");
+        let lines = asked(
+            &ids,
+            std::slice::from_ref(&details),
+            &|id| id == "200",
+            "1.6",
+        );
         assert_eq!(
             (lines[0].id.as_str(), &lines[0].title, lines[0].installed),
             ("777", &None, false)
@@ -294,6 +326,14 @@ mod tests {
             (Some("Zebra"), Some(3.0))
         );
         assert!(lines[1].installed);
+        assert_eq!(
+            (lines[1].versions.as_str(), lines[1].subscribers),
+            ("1.5, 1.4, 1.3", Some(12))
+        );
+        assert!(lines[1].misfit.is_some() && lines[0].misfit.is_none());
+        let fits = asked(&ids, std::slice::from_ref(&details), &|_| false, "1.5");
+        let unknown = asked(&ids, &[details], &|_| false, "");
+        assert!(fits[1].misfit.is_none() && unknown[1].misfit.is_none());
     }
 
     fn times(pairs: &[(&str, u64)]) -> HashMap<String, u64> {

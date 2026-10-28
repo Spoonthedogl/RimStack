@@ -1333,6 +1333,8 @@
  "{} shared": "{} compartidos",
  "{} snapshot": "{} instantánea",
  "{} snapshots": "{} instantáneas",
+ "{} subscriber": "{} suscriptor",
+ "{} subscribers": "{} suscriptores",
  "{} tasks running": "{} tareas en ejecución",
  "{} texts translated": "{} textos traducidos",
  "{} texture": "{} textura",

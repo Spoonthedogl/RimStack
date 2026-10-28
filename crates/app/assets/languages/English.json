@@ -1333,6 +1333,8 @@
  "{} shared": "{} shared",
  "{} snapshot": "{} snapshot",
  "{} snapshots": "{} snapshots",
+ "{} subscriber": "{} subscriber",
+ "{} subscribers": "{} subscribers",
  "{} tasks running": "{} tasks running",
  "{} texts translated": "{} texts translated",
  "{} texture": "{} texture",

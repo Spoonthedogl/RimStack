@@ -1333,6 +1333,8 @@
  "{} shared": "współdzielone: {}",
  "{} snapshot": "{} migawka",
  "{} snapshots": "{} migawki|{} migawek",
+ "{} subscriber": "{} subskrybent",
+ "{} subscribers": "{} subskrybenci|{} subskrybentów",
  "{} tasks running": "zadań w toku: {}",
  "{} texts translated": "przetłumaczono tekstów: {}",
  "{} texture": "{} tekstura",

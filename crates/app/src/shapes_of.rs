@@ -427,6 +427,9 @@ fn downloads(app: &App, shapes: &mut Shapes) {
         updated: title.map(|_| 1),
         megabytes: title.map(|_| 1.5),
         installed: false,
+        versions: "1.6, 1.5".into(),
+        subscribers: title.map(|_| 3),
+        misfit: title.map(|_| rimstack_core::said!("refused")),
     };
     let queue = Queue {
         items: vec![asked(Some("Ann.B")), asked(None)],
