@@ -122,7 +122,7 @@ fn not_an_id(id: &str) -> Error {
     Error::refused(said!("{} is not a Workshop id", id))
 }
 
-fn is_workshop_id(id: &str) -> bool {
+pub fn is_workshop_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_digit())
 }
 

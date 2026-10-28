@@ -82,6 +82,7 @@ impl qobject::DownloadsData {
             .checked
             .items
             .iter()
+            .filter(|row| !row.steamcmd)
             .map(|row| row.id.clone())
             .collect();
         self.as_mut()
@@ -92,6 +93,23 @@ impl qobject::DownloadsData {
         let checked = std::mem::take(&mut self.as_mut().rust_mut().get_mut().checked);
         self.as_mut().show_updates(checked);
         self.ask_steam(SteamAsk::Download, ids);
+    }
+
+    /// Steam does not update what SteamCMD put in the game's Mods folder.
+    pub(super) fn update_with_steamcmd(self: Pin<&mut Self>) {
+        let ids: Vec<String> = self
+            .checked
+            .items
+            .iter()
+            .filter(|row| row.steamcmd)
+            .map(|row| row.id.clone())
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        let app = self.app();
+        let doing = say!("Downloading {} with SteamCMD…", ids.len());
+        self.task(doing, move || app.download_with_steamcmd(&ids));
     }
 
     pub(super) fn subscribe_wanted(self: Pin<&mut Self>) {

@@ -78,6 +78,7 @@ downloads.updates: object
       modId: number
       name: text
       now: number
+      steamcmd: bool
   checked: nothing or number
   checkedSaid: text
   checkouts: list
@@ -106,7 +107,9 @@ downloads.updates: object
       modId: number
       name: text
       now: number
+      steamcmd: bool
   problem: nothing or text
+  steamcmd: number
 game.lastStart: object
   errors: number
   time: number
@@ -697,6 +700,7 @@ settings.report: object
   setupDone: bool
   steamcmd: bool
   steamcmdFolder: text
+  updatesAtStart: bool
   version: text
   versionAsideFor: text
   versionWarnings: bool

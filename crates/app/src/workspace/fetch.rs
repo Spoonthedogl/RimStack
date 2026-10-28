@@ -148,6 +148,14 @@ impl App {
                 Err(problem) => Err(problem.clone()),
             })
             .collect();
+        let downloaded: Vec<String> = fetched
+            .items
+            .iter()
+            .zip(&outcomes)
+            .filter(|(_, outcome)| outcome.is_ok())
+            .map(|((id, _), _)| id.clone())
+            .collect();
+        self.note_downloaded(&downloaded);
         let failed: Vec<&Error> = outcomes.iter().filter_map(|o| o.as_ref().err()).collect();
         Done {
             wrote: failed.len() < outcomes.len(),
@@ -181,6 +189,7 @@ impl App {
         let found = self.mod_folder(id).and_then(|(folder, _)| {
             let workshop = self
                 .workshop_id(id)
+                .or_else(|| self.steamcmd_id(id))
                 .ok_or_else(|| Error::refused(said!("Not a Workshop mod")))?;
             Ok((folder, workshop))
         });
@@ -191,7 +200,9 @@ impl App {
                 .ok_or_else(|| Error::refused(said!("SteamCMD is not installed")))?;
             let fetched =
                 redownload::fetch_all(&steamcmd, std::slice::from_ref(&workshop), &scratch);
-            redownload::replace(&folder, fetched.first()?)
+            redownload::replace(&folder, fetched.first()?)?;
+            self.note_downloaded(&[workshop]);
+            Ok(())
         });
         Done::of_a_write(match done {
             Ok(()) => Ok(say!("Downloaded again")),

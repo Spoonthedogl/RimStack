@@ -37,6 +37,7 @@ Item {
 
     readonly property var activeUpdates: report.active || []
     readonly property var inactiveUpdates: report.inactive || []
+    readonly property int steamcmdUpdates: report.steamcmd || 0
     property bool inactiveOpen: false
     readonly property var checkouts: report.checkouts || []
     readonly property var checkoutsBehind: report.checkoutsBehind || []
@@ -54,6 +55,7 @@ Item {
         Chip { tone: Theme.moved; text: screen.day(row.modelData.have) + " → " + screen.day(row.modelData.now); tip: Theme.fill("Published {}", Theme.ago(row.modelData.now)) }
         Btn { text: Theme.say("Show"); spoken: Theme.fill("Show {}", row.modelData.name); onClicked: screen.showMod(row.modelData.modId) }
         Btn { text: Theme.say("What changed"); spoken: Theme.fill("What changed in {}", row.modelData.name); tip: Theme.say("The mod's change notes on the Workshop."); onClicked: Theme.openChangeNotes(row.modelData.id) }
+        Btn { visible: row.modelData.steamcmd; enabled: !screen.downloads.taskRunning; icon: "download"; text: Theme.say("Update"); spoken: Theme.fill("Update {}", row.modelData.name); tip: Theme.say("SteamCMD downloads the newer version, and it replaces the copy in the game's Mods folder."); onClicked: screen.downloads.redownload(row.modelData.modId) }
     }
 
     component Cell: Text {
@@ -295,13 +297,21 @@ Item {
                 note: screen.downloads.updatesBusy ? Theme.say("Asking Steam…") : Theme.fill("{} for active mods", screen.activeUpdates.length)
                 actions: [
                     Btn {
-                        visible: (screen.report.count || 0) > 0
+                        visible: (screen.report.count || 0) > screen.steamcmdUpdates
                         primary: screen.activeUpdates.length > 0
                         enabled: !screen.downloads.taskRunning
                         icon: "download"
                         text: Theme.say("Update in Steam")
                         tip: Theme.say("Steam, which must be running, downloads the newer version of each now. Left alone it does so the next time it starts.")
                         onClicked: screen.downloads.updateInSteam()
+                    },
+                    Btn {
+                        visible: screen.steamcmdUpdates > 0 && screen.steamcmd
+                        enabled: !screen.downloads.taskRunning
+                        icon: "download"
+                        text: Theme.fill("Update {} with SteamCMD", screen.steamcmdUpdates)
+                        tip: Theme.say("Steam does not update mods downloaded with SteamCMD. SteamCMD downloads the newer version of each, and it replaces the copy in the game's Mods folder.")
+                        onClicked: screen.downloads.updateWithSteamcmd()
                     }
                 ]
                 Rectangle {

@@ -151,6 +151,7 @@ impl App {
             git_for_workshop: settings.switch(Switch::GitForWorkshop),
             git: self.git().clone(),
             self_check: settings.switch(Switch::SelfCheck),
+            updates_at_start: settings.switch(Switch::UpdatesAtStart),
             nightly_updates: settings.nightly_updates(),
             logs_kept: settings.logs_kept().unwrap_or(10),
             logs_kept_now: rimstack_core::rimworld::logs::kept(&logs).len(),
