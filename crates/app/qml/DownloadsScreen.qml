@@ -89,7 +89,7 @@ Item {
                         id: pasted
                         Layout.fillWidth: true
                         implicitHeight: Theme.sized(30)
-                        placeholder: Theme.say("Paste Workshop links, collection links, mod ids or Git links")
+                        placeholder: Theme.say("Paste Workshop links, collection links, mod ids or Git links, or type a mod's name")
                         onAccepted: add.clicked()
                     }
                     Btn {
@@ -97,7 +97,7 @@ Item {
                         enabled: !screen.downloads.queueBusy && pasted.text.trim() !== ""
                         primary: pasted.text.trim() !== ""
                         text: screen.downloads.queueBusy ? Theme.say("Asking Steam…") : Theme.say("Look up")
-                        tip: Theme.say("Looks up what is pasted beside it: paste a link or an id first.")
+                        tip: Theme.say("Looks up what is pasted beside it: a link, an id, or a mod's name to search the Workshop for.")
                         onClicked: screen.downloads.lookUp(pasted.text)
                     }
                 }
@@ -160,6 +160,7 @@ Item {
                     RowLayout {
                         id: item
                         required property var modelData
+                        property bool sent: false
                         width: page.width
                         height: Theme.sized(32)
                         spacing: Theme.gapLarge
@@ -169,6 +170,15 @@ Item {
                         Chip { visible: !item.modelData.title; tone: Theme.err; icon: "circle-alert"; text: Theme.say("Not on the Workshop") }
                         Chip { visible: !!item.modelData.title && item.modelData.installed; tone: Theme.ok; icon: "check"; text: Theme.say("Installed") }
                         Btn { visible: !!item.modelData.title && !item.modelData.installed; icon: "external-link"; text: Theme.say("Workshop page"); onClicked: Theme.openWorkshop(item.modelData.id) }
+                        // Search results are not wanted together, so each has its own.
+                        Btn {
+                            visible: !!item.modelData.title && !item.modelData.installed && screen.wanted.indexOf(item.modelData.id) < 0
+                            enabled: !item.sent
+                            icon: "plus"
+                            text: Theme.say("Subscribe in Steam")
+                            tip: Theme.say("Steam, which must be running, subscribes to each and downloads it; it keeps them up to date afterwards.")
+                            onClicked: { screen.downloads.subscribe(item.modelData.id); item.sent = true }
+                        }
                     }
                 }
             }

@@ -228,13 +228,19 @@ impl App {
     }
 
     pub fn look_up(&self, pasted: &str) -> Result<Queue, Error> {
-        let ids = workshop::ids_in(pasted);
+        let mut ids = workshop::ids_in(pasted);
         let local = self.paths().local_mods();
         let repositories = downloads::repositories(pasted, local.as_deref());
+        // Neither a link nor an id: a mod's name, searched for on the Workshop.
+        let searched = ids.is_empty() && repositories.is_empty() && !pasted.contains("://");
+        if searched {
+            ids = workshop::search(pasted.trim())?;
+        }
         if ids.is_empty() {
-            let note = match repositories.is_empty() {
-                true => say!("No Workshop link, mod id or Git link found"),
-                false => Sentence::default(),
+            let note = match (searched, repositories.is_empty()) {
+                (true, _) => say!("No Workshop mod matches that name"),
+                (false, true) => say!("No Workshop link, mod id or Git link found"),
+                (false, false) => Sentence::default(),
             };
             return Ok(Queue {
                 repositories,
@@ -248,9 +254,10 @@ impl App {
         let (library, _) = loaded.as_ref().as_ref().map_err(Clone::clone)?;
         let mods = library.workshop_mods();
         let items = downloads::asked(&ids, &answered, &|id| mods.contains_key(id));
+        // Search results are picked one by one, not all at once.
         let wanted = items
             .iter()
-            .filter(|item| item.title.is_some() && !item.installed)
+            .filter(|item| !searched && item.title.is_some() && !item.installed)
             .map(|item| item.id.clone())
             .collect();
         Ok(Queue {

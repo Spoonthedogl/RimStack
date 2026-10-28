@@ -189,6 +189,37 @@ pub fn expand_collections(ids: &[String]) -> Result<Vec<String>, Error> {
     Ok(all)
 }
 
+const SEARCH_URL: &str = "https://steamcommunity.com/workshop/browse/";
+
+/// The mods a Workshop search page lists, best match first. Links quoted in
+/// descriptions are not `href`s, so they are not taken.
+pub fn search_results(html: &str) -> Vec<String> {
+    const LINK: &str = "href=\"https://steamcommunity.com/sharedfiles/filedetails/?id=";
+    let mut found: Vec<String> = Vec::new();
+    for after in html.split(LINK).skip(1) {
+        let id: String = after.chars().take_while(char::is_ascii_digit).collect();
+        if !id.is_empty() && !found.contains(&id) {
+            found.push(id);
+        }
+    }
+    found
+}
+
+/// Blocks on the network. The Workshop's own search page, which needs no key.
+pub fn search(name: &str) -> Result<Vec<String>, Error> {
+    let failed = crate::base::web::steam_failed;
+    let mut response = crate::base::web::agent(30)
+        .get(SEARCH_URL)
+        .query("appid", "294100")
+        .query("searchtext", name)
+        .query("browsesort", "textsearch")
+        .query("section", "readytouseitems")
+        .call()
+        .map_err(failed)?;
+    let html = response.body_mut().read_to_string().map_err(failed)?;
+    Ok(search_results(&html))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +325,24 @@ mod tests {
         let found = fetch_details(&["2009463077".to_string(), "1".to_string()]).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].title, "Harmony");
+    }
+
+    #[test]
+    fn search_takes_each_result_once_and_not_links_in_descriptions() {
+        let page = r#"{\"short_description\":\"https://steamcommunity.com/sharedfiles/filedetails/?id=999\"}
+            <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=1561769193" class="a"><img></a>
+            <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=1561769193" class="b">Common Sense</a>
+            <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=2822058610" class="b">Patch</a>
+            <a href="https://steamcommunity.com/sharedfiles/filedetails/?id=" class="b">Broken</a>"#;
+        assert_eq!(search_results(page), ["1561769193", "2822058610"]);
+        assert!(search_results("<html></html>").is_empty());
+    }
+
+    #[test]
+    #[ignore = "needs the network"]
+    fn steam_finds_a_mod_by_name() {
+        let found = search("Harmony").unwrap();
+        assert!(found.contains(&"2009463077".to_string()));
     }
 
     #[test]
