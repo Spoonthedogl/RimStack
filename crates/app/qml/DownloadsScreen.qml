@@ -169,7 +169,12 @@ Item {
                         Cell { Layout.preferredWidth: Theme.sized(70); horizontalAlignment: Text.AlignRight; text: screen.megabytes(item.modelData.megabytes) }
                         Cell { Layout.preferredWidth: Theme.sized(110); text: item.modelData.versions; Tip { text: Theme.say("Game version") } }
                         Cell { visible: !!item.modelData.subscribers; Layout.preferredWidth: Theme.sized(130); horizontalAlignment: Text.AlignRight; text: Theme.plural(item.modelData.subscribers, "{} subscriber", "{} subscribers") }
-                        Chip { visible: !!item.modelData.misfit; tone: Theme.warn; icon: "triangle-alert"; text: Theme.say("Made for another game version"); tip: item.modelData.misfit || "" }
+                        // Its room is kept when it is hidden, so the columns line up.
+                        Item {
+                            implicitWidth: misfit.implicitWidth
+                            implicitHeight: misfit.implicitHeight
+                            Chip { id: misfit; visible: !!item.modelData.misfit; tone: Theme.warn; icon: "triangle-alert"; text: Theme.say("Made for another game version"); tip: item.modelData.misfit || "" }
+                        }
                         Chip { visible: !item.modelData.title; tone: Theme.err; icon: "circle-alert"; text: Theme.say("Not on the Workshop") }
                         Chip { visible: !!item.modelData.title && item.modelData.installed; tone: Theme.ok; icon: "check"; text: Theme.say("Installed") }
                         Btn { visible: !!item.modelData.title && !item.modelData.installed; icon: "external-link"; text: Theme.say("Workshop page"); onClicked: Theme.openWorkshop(item.modelData.id) }
