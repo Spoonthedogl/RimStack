@@ -227,7 +227,7 @@ ApplicationWindow {
         })
     }
 
-    Timer { interval: 4000; running: !Theme.demo && window.shotPath === "" && Mods.checkMode === ""; onTriggered: if (Hub.settings.report.selfCheck) Hub.settings.checkRelease() }
+    Timer { interval: 4000; running: !Theme.demo && window.shotPath === "" && Mods.checkMode === ""; onTriggered: { if (Hub.settings.report.selfCheck) Hub.settings.checkRelease(); Hub.downloads.checkAtStart() } }
 
     Commands {
         id: commands

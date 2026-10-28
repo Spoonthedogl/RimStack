@@ -46,6 +46,10 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "checkUpdates"]
         fn check_updates(self: Pin<&mut DownloadsData>);
+        /// Checks only when Settings say to at each start.
+        #[qinvokable]
+        #[cxx_name = "checkAtStart"]
+        fn check_at_start(self: Pin<&mut DownloadsData>);
         #[qinvokable]
         #[cxx_name = "lookUp"]
         fn look_up(self: Pin<&mut DownloadsData>, pasted: &QString);
@@ -54,6 +58,9 @@ pub mod qobject {
         #[qinvokable]
         #[cxx_name = "updateInSteam"]
         fn update_in_steam(self: Pin<&mut DownloadsData>);
+        #[qinvokable]
+        #[cxx_name = "updateWithSteamcmd"]
+        fn update_with_steamcmd(self: Pin<&mut DownloadsData>);
         #[qinvokable]
         #[cxx_name = "subscribeWanted"]
         fn subscribe_wanted(self: Pin<&mut DownloadsData>);
@@ -114,6 +121,7 @@ use core::pin::Pin;
 use cxx_qt::{CxxQtType, Threading};
 use cxx_qt_lib::{QString, QVariant};
 use rimstack_core::base::error::Error;
+use rimstack_core::kept::settings::Switch;
 use rimstack_core::mods::library::ModId;
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
@@ -244,6 +252,12 @@ impl qobject::DownloadsData {
         let (report, active) = (to_qml(&shown), shown.active.len());
         self.as_mut().set_updates(report);
         self.set_behind_active(i32::try_from(active).unwrap_or(i32::MAX));
+    }
+
+    fn check_at_start(self: Pin<&mut Self>) {
+        if self.app().settings().switch(Switch::UpdatesAtStart) {
+            self.check_updates();
+        }
     }
 
     fn check_updates(mut self: Pin<&mut Self>) {

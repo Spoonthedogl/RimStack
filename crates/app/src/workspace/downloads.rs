@@ -8,7 +8,8 @@ use rimstack_core::kept::updates::{self, LastCheck, Remote};
 use rimstack_core::mods::library::{Installed, Library, ModId};
 use rimstack_core::rimworld::{paths::Source, workshop};
 use rimstack_core::say;
-use rimstack_core::sources::downloads::{self, Asked, Behind, Replaceable, Repository};
+use rimstack_core::sources::downloads::{self, Asked, Behind, Item, Replaceable, Repository};
+use rimstack_core::sources::redownload::is_workshop_id;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -55,6 +56,8 @@ pub struct UpdatesShown<'a> {
     pub checked_said: Sentence,
     pub problem: Option<&'a Sentence>,
     pub count: usize,
+    /// Of `count`, those SteamCMD put in the game's Mods folder.
+    pub steamcmd: usize,
     pub active: Vec<BehindShown<'a>>,
     pub inactive: Vec<BehindShown<'a>>,
     pub checkouts: &'a [Checkout],
@@ -81,6 +84,7 @@ pub fn updates_shown<'a>(updates: &'a Updates, asked: &HashSet<String>) -> Updat
         },
         problem: updates.problem.as_ref(),
         count: updates.items.len(),
+        steamcmd: updates.items.iter().filter(|row| row.steamcmd).count(),
         active: shown(true),
         inactive: shown(false),
         checkouts: &updates.checkouts,
@@ -117,11 +121,14 @@ impl App {
         let loaded = self.library();
         let (library, _) = loaded.as_ref().as_ref().map_err(Clone::clone)?;
         let mut kept = self.last_check();
-        let ids: Vec<String> = library
+        let mut ids: Vec<String> = library
             .workshop_mods()
-            .keys()
-            .map(|id| id.to_string())
+            .into_keys()
+            .chain(self.steamcmd_mods(library).into_iter().map(|(id, _, _)| id))
+            .map(String::from)
             .collect();
+        ids.sort();
+        ids.dedup();
         let problem = match workshop::fetch_details(&ids) {
             Ok(now) => {
                 kept.checked = Some(super::now_secs());
@@ -161,11 +168,25 @@ impl App {
     }
 
     fn updates_of(&self, library: &Library, kept: &LastCheck) -> Updates {
-        let on_disk = &self.steam_record().0;
+        let mut on_disk = self.steam_record().0.clone();
         let now: HashMap<String, u64> = kept.now.clone().into_iter().collect();
         let active = self.active_now(library);
-        let items = downloads::items(library, &active);
-        let behind = downloads::behind(&items, on_disk, &now);
+        let mut items = downloads::items(library, &active);
+        // Steam's copy wins where a mod is in both places.
+        for (id, mod_id, have) in self.steamcmd_mods(library) {
+            let Some(m) = library.get(mod_id).filter(|_| !items.contains_key(id)) else {
+                continue;
+            };
+            let item = Item {
+                mod_id,
+                name: m.display_name(),
+                active: active.contains(&mod_id),
+                steamcmd: true,
+            };
+            items.insert(id, item);
+            on_disk.insert(id.to_string(), have);
+        }
+        let behind = downloads::behind(&items, &on_disk, &now);
         if kept.checked.is_some() {
             *self.behind().writing() = Some(behind.iter().map(|row| row.id.clone()).collect());
         }
@@ -287,6 +308,57 @@ impl App {
         Ok(())
     }
 
+    fn downloaded_file(&self) -> PathBuf {
+        self.data_dir().join("downloaded.json")
+    }
+
+    /// Seconds since 1970 when SteamCMD last downloaded each, by Workshop id.
+    fn downloaded(&self) -> BTreeMap<String, u64> {
+        let kept = rimstack_core::base::atomic_file::read_json(&self.downloaded_file());
+        kept.and_then(|json| serde_json::from_value(json).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn note_downloaded(&self, ids: &[String]) {
+        let mut kept = self.downloaded();
+        let now = super::now_secs();
+        kept.extend(ids.iter().map(|id| (id.clone(), now)));
+        let text = serde_json::to_string(&kept).unwrap_or_default();
+        if let Err(problem) = rimstack_core::base::atomic_file::write(&self.downloaded_file(), text)
+        {
+            rimstack_core::problem!("{problem}");
+        }
+    }
+
+    /// The mods SteamCMD put in the game's Mods folder, each in a folder named by its Workshop
+    /// id, with when it was downloaded. One downloaded before that was kept is dated by its
+    /// About.xml. A Git checkout is left to Git.
+    fn steamcmd_mods<'a>(&self, library: &'a Library) -> Vec<(&'a str, ModId, u64)> {
+        let kept = self.downloaded();
+        let dated = |m: &Installed| -> Option<u64> {
+            let file = std::fs::metadata(m.path.join("About").join("About.xml")).ok()?;
+            let since = file.modified().ok()?.duration_since(std::time::UNIX_EPOCH);
+            Some(since.ok()?.as_secs())
+        };
+        library
+            .ids()
+            .filter(|(_, m)| m.source == Source::Local && !m.git && is_workshop_id(&m.folder))
+            .filter_map(|(id, m)| {
+                let have = kept.get(&m.folder).copied().or_else(|| dated(m))?;
+                Some((m.folder.as_str(), id, have))
+            })
+            .collect()
+    }
+
+    /// The Workshop id of a mod SteamCMD put in the game's Mods folder.
+    pub fn steamcmd_id(&self, id: ModId) -> Option<String> {
+        let loaded = self.library();
+        let (library, _) = loaded.as_ref().as_ref().ok()?;
+        let mods = self.steamcmd_mods(library);
+        let found = mods.into_iter().find(|(_, mod_id, _)| *mod_id == id);
+        found.map(|(folder, _, _)| folder.to_string())
+    }
+
     /// A Workshop mod's id: the name of its folder.
     pub fn workshop_id(&self, id: ModId) -> Option<String> {
         let loaded = self.library();
@@ -357,5 +429,48 @@ mod tests {
         assert_eq!(app.replacements_ignored().len(), 2);
         app.ignore_replacement(None).unwrap();
         assert!(app.replacements_ignored().is_empty());
+    }
+
+    #[test]
+    fn a_mod_steamcmd_downloaded_is_checked_but_a_checkout_named_by_an_id_is_not() {
+        let (tmp, app) = installed();
+        let add = |folder: &str, id: &str| {
+            let about = tmp.path().join("game/Mods").join(folder).join("About");
+            std::fs::create_dir_all(&about).unwrap();
+            let xml =
+                format!("<ModMetaData><packageId>{id}</packageId><name>{id}</name></ModMetaData>");
+            std::fs::write(about.join("About.xml"), xml).unwrap();
+        };
+        add("2009463077", "Ann.Hats");
+        add("818773962", "Ann.Boots");
+        std::fs::create_dir(tmp.path().join("game/Mods/818773962/.git")).unwrap();
+        app.rescan();
+        app.note_downloaded(&["2009463077".to_string()]);
+        let loaded = app.library();
+        let (library, _) = loaded.as_ref().as_ref().unwrap();
+        let find = |folder: &str| library.ids().find(|(_, m)| m.folder == folder).unwrap().0;
+        let (hats, boots) = (find("2009463077"), find("818773962"));
+
+        let mut kept = LastCheck {
+            checked: Some(1),
+            ..LastCheck::default()
+        };
+        let later = crate::workspace::now_secs() + 60;
+        kept.now.insert("2009463077".into(), later);
+        kept.now.insert("818773962".into(), later);
+        let report = app.updates_of(library, &kept);
+        assert_eq!(report.items.len(), 1);
+        assert_eq!(
+            (report.items[0].mod_id, report.items[0].steamcmd),
+            (hats, true)
+        );
+        kept.now.insert("2009463077".into(), 5);
+        assert!(
+            app.updates_of(library, &kept).items.is_empty(),
+            "downloaded since"
+        );
+        drop(loaded);
+        assert_eq!(app.steamcmd_id(hats).as_deref(), Some("2009463077"));
+        assert_eq!(app.steamcmd_id(boots), None);
     }
 }

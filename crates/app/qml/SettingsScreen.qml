@@ -272,6 +272,14 @@ Item {
                     Text { Layout.fillWidth: true; color: screen.info.git ? Theme.ink : Theme.err; font.pixelSize: Theme.body; text: screen.info.git ? Theme.fill("Installed, version {}", screen.info.git) : Theme.say("Not installed: Git checkouts cannot be checked or updated") }
                 }
                 Line {
+                    title: Theme.say("Check for mod updates at each start")
+                    tip: Theme.say("On: at each start RimStack does what Check now in Downloads does. Mods downloaded with SteamCMD are checked too, since Steam does not update them.")
+                    changed: !screen.info.updatesAtStart
+                    onReset: screen.keep("updatesAtStart", "on")
+                    Toggle { title: Theme.say("Check for mod updates at each start"); on: !!screen.info.updatesAtStart; onFlipped: on => screen.keep("updatesAtStart", on ? "on" : "off") }
+                    Item { Layout.fillWidth: true }
+                }
+                Line {
                     title: Theme.say("Git for Workshop mods")
                     tip: Theme.say("Check now asks Steam about a Workshop mod, and Git about a checkout in the game's Mods folder. On: a Workshop mod that is a Git checkout is asked through Git as well, which fetches into its folder.")
                     changed: !!screen.info.gitForWorkshop

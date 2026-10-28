@@ -396,6 +396,7 @@ fn downloads(app: &App, shapes: &mut Shapes) {
         mod_id: b,
         name: "Ann.B".into(),
         active,
+        steamcmd: !active,
         have: 1,
         now: 2,
     };

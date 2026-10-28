@@ -58,6 +58,7 @@ pub struct SettingsReport {
     pub git_for_workshop: bool,
     pub git: Option<String>,
     pub self_check: bool,
+    pub updates_at_start: bool,
     pub nightly_updates: bool,
     pub logs_kept: usize,
     pub logs_kept_now: usize,

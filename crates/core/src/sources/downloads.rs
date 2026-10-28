@@ -11,6 +11,8 @@ pub struct Item<'a> {
     pub mod_id: ModId,
     pub name: &'a str,
     pub active: bool,
+    /// Put in the game's Mods folder by SteamCMD, so Steam does not update it.
+    pub steamcmd: bool,
 }
 
 /// Keyed by Workshop id. `active` holds the mods in the load order.
@@ -20,6 +22,7 @@ pub fn items<'a>(library: &'a Library, active: &HashSet<ModId>) -> HashMap<&'a s
             mod_id,
             name: library.get(mod_id)?.display_name(),
             active: active.contains(&mod_id),
+            steamcmd: false,
         };
         Some((id, item))
     };
@@ -37,6 +40,7 @@ pub struct Behind {
     pub mod_id: ModId,
     pub name: String,
     pub active: bool,
+    pub steamcmd: bool,
     pub have: u64,
     pub now: u64,
 }
@@ -57,6 +61,7 @@ pub fn behind(
                 mod_id: item.mod_id,
                 name: item.name.to_string(),
                 active: item.active,
+                steamcmd: item.steamcmd,
                 have,
                 now,
             })
@@ -223,6 +228,7 @@ mod tests {
             mod_id: ModId::new(0, at),
             name,
             active,
+            steamcmd: false,
         };
         HashMap::from([
             ("100", item(0, "Old Roads", false)),
